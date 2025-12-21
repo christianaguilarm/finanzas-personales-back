@@ -32,44 +32,4 @@ public class Comercio {
 
     @OneToMany(mappedBy = "comercio", fetch = FetchType.LAZY)
     private Set<Transaccion> transacciones = new HashSet<>();
-
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public AppUser getUser() {
-        return user;
-    }
-
-    public void setUser(AppUser user) {
-        this.user = user;
-    }
-
-    public String getNombre() {
-        return nombre;
-    }
-
-    public void setNombre(String nombre) {
-        this.nombre = nombre;
-    }
-
-    public String getRubro() {
-        return rubro;
-    }
-
-    public void setRubro(String rubro) {
-        this.rubro = rubro;
-    }
-
-    public Set<Transaccion> getTransacciones() {
-        return transacciones;
-    }
-
-    public void setTransacciones(Set<Transaccion> transacciones) {
-        this.transacciones = transacciones;
-    }
 }
