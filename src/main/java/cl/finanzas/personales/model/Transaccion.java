@@ -7,6 +7,7 @@ import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -36,6 +37,10 @@ public class Transaccion {
 
     @Column(nullable = false)
     private LocalDate fecha;
+
+    @Convert(converter = cl.finanzas.personales.repository.converter.YearMonthAttributeConverter.class)
+    @Column(length = 7)
+    private YearMonth periodoFacturacion;
 
     @Column(nullable = false, precision = 14, scale = 2)
     private BigDecimal monto;

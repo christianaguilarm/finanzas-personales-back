@@ -5,6 +5,7 @@ import cl.finanzas.personales.dto.TransaccionResponse;
 import cl.finanzas.personales.model.*;
 import org.springframework.stereotype.Component;
 
+import java.time.YearMonth;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -19,6 +20,9 @@ public class TransaccionMapper {
         transaccion.setMonto(dto.monto());
         transaccion.setTipo(dto.tipo());
         transaccion.setFecha(dto.fecha());
+        transaccion.setPeriodoFacturacion(
+                dto.periodoFacturacion() != null ? dto.periodoFacturacion() : YearMonth.from(dto.fecha())
+        );
         transaccion.setDescripcion(dto.descripcion());
         transaccion.setMedio(dto.medio());
         transaccion.setEsRecurrente(dto.esRecurrente());
@@ -68,6 +72,7 @@ public class TransaccionMapper {
                 entity.getId(),
                 entity.getTipo(),
                 entity.getFecha(),
+                entity.getPeriodoFacturacion(),
                 entity.getMonto(),
                 entity.getMedio(),
                 entity.getDescripcion(),
