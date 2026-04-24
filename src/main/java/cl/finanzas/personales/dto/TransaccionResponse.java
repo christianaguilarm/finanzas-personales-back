@@ -6,12 +6,14 @@ import cl.finanzas.personales.model.TipoTransaccion;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.Set;
 
 public record TransaccionResponse(
         Long id,
         TipoTransaccion tipo,
         LocalDate fecha,
+        YearMonth periodoFacturacion,
         BigDecimal monto,
         MedioPago medio,
         String descripcion,
