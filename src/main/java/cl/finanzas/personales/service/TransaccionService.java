@@ -27,6 +27,26 @@ public class TransaccionService {
 
     @Transactional
     public TransaccionResponse crearTransaccion(TransaccionRequest request) {
+        if ((request.totalCuotas() == null) != (request.cuotaActual() == null)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Para compras en cuotas debes enviar totalCuotas y cuotaActual juntos"
+            );
+        }
+
+        if (request.totalCuotas() != null) {
+            if (request.medio() != cl.finanzas.personales.model.MedioPago.CREDITO) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Las cuotas solo aplican para medio CREDITO");
+            }
+
+            if (request.cuotaActual() > request.totalCuotas()) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "cuotaActual no puede ser mayor que totalCuotas"
+                );
+            }
+        }
+
         Transaccion transaccion = mapper.toEntity(request);
 
         // Cargar tags si existen

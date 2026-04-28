@@ -18,6 +18,8 @@ public record TransaccionResponse(
         MedioPago medio,
         String descripcion,
         boolean esRecurrente,
+        Integer totalCuotas,
+        Integer cuotaActual,
         LocalDateTime creadoEn,
         Long cuentaId,
         Long categoriaId,
