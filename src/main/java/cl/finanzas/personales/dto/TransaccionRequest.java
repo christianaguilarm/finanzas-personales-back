@@ -3,6 +3,7 @@ package cl.finanzas.personales.dto;
 import cl.finanzas.personales.model.MedioPago;
 import cl.finanzas.personales.model.TipoTransaccion;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
@@ -25,6 +26,8 @@ public record TransaccionRequest(
         Long comercioId,
         @Size(max = 300) String descripcion,
         boolean esRecurrente,
+        @Min(value = 1, message = "El total de cuotas debe ser mayor o igual a 1") Integer totalCuotas,
+        @Min(value = 1, message = "La cuota actual debe ser mayor o igual a 1") Integer cuotaActual,
         Set<Long> tagIds
 ) {
 }

@@ -67,6 +67,10 @@ public class Transaccion {
     @Column(name = "es_recurrente", nullable = false)
     private boolean esRecurrente = false;
 
+    private Integer totalCuotas;
+
+    private Integer cuotaActual;
+
     @Column(name = "creado_en", nullable = false)
     private LocalDateTime creadoEn = LocalDateTime.now();
 

@@ -26,6 +26,8 @@ public class TransaccionMapper {
         transaccion.setDescripcion(dto.descripcion());
         transaccion.setMedio(dto.medio());
         transaccion.setEsRecurrente(dto.esRecurrente());
+        transaccion.setTotalCuotas(dto.totalCuotas());
+        transaccion.setCuotaActual(dto.cuotaActual());
 
         // Relaciones
         if (dto.userId() != null) {
@@ -77,6 +79,8 @@ public class TransaccionMapper {
                 entity.getMedio(),
                 entity.getDescripcion(),
                 entity.isEsRecurrente(),
+                entity.getTotalCuotas(),
+                entity.getCuotaActual(),
                 entity.getCreadoEn(),
                 entity.getCuenta() != null ? entity.getCuenta().getId() : null,
                 entity.getCategoria() != null ? entity.getCategoria().getId() : null,
