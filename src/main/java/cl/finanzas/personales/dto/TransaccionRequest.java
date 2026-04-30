@@ -6,6 +6,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import com.fasterxml.jackson.annotation.JsonFormat;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -15,9 +16,9 @@ import java.util.Set;
 public record TransaccionRequest(
         @NotNull Long userId,
         @NotNull Long cuentaId,
-        @NotNull TipoTransaccion tipo,
-        @NotNull LocalDate fecha,
-        YearMonth periodoFacturacion,
+        TipoTransaccion tipo,
+        @NotNull @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd") LocalDate fecha,
+        @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM") YearMonth periodoFacturacion,
         @DecimalMin(value = "0.01", message = "El monto debe ser mayor que cero")
         BigDecimal monto,
         Long categoriaId,

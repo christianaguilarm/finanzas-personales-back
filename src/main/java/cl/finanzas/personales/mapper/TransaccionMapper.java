@@ -14,11 +14,15 @@ public class TransaccionMapper {
 
     // === DTO → Entity ===
     public Transaccion toEntity(TransaccionRequest dto) {
+        return toEntity(dto, dto != null ? dto.tipo() : null);
+    }
+
+    public Transaccion toEntity(TransaccionRequest dto, TipoTransaccion tipo) {
         if (dto == null) return null;
 
         Transaccion transaccion = new Transaccion();
         transaccion.setMonto(dto.monto());
-        transaccion.setTipo(dto.tipo());
+        transaccion.setTipo(tipo);
         transaccion.setFecha(dto.fecha());
         transaccion.setPeriodoFacturacion(
                 dto.periodoFacturacion() != null ? dto.periodoFacturacion() : YearMonth.from(dto.fecha())
