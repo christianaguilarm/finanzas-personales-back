@@ -14,7 +14,6 @@ import java.time.YearMonth;
 import java.util.Set;
 
 public record TransaccionRequest(
-        @NotNull Long userId,
         @NotNull Long cuentaId,
         TipoTransaccion tipo,
         @NotNull @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd") LocalDate fecha,
@@ -28,7 +27,7 @@ public record TransaccionRequest(
         @Size(max = 300) String descripcion,
         boolean esRecurrente,
         @Min(value = 1, message = "El total de cuotas debe ser mayor o igual a 1") Integer totalCuotas,
-        @Min(value = 1, message = "La cuota actual debe ser mayor o igual a 1") Integer cuotaActual,
+        @Min(value = 0, message = "La cuota actual debe ser mayor o igual a 0") Integer cuotaActual,
         Set<Long> tagIds
 ) {
 }

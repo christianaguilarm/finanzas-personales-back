@@ -7,4 +7,7 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface TransaccionRepository extends JpaRepository<Transaccion, Long>, JpaSpecificationExecutor<Transaccion> {
+    long countByCategoriaId(Long categoriaId);
+
+    long countBySubcategoriaId(Long subcategoriaId);
 }

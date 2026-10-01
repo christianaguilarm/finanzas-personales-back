@@ -13,11 +13,7 @@ import java.util.stream.Collectors;
 public class TransaccionMapper {
 
     // === DTO → Entity ===
-    public Transaccion toEntity(TransaccionRequest dto) {
-        return toEntity(dto, dto != null ? dto.tipo() : null);
-    }
-
-    public Transaccion toEntity(TransaccionRequest dto, TipoTransaccion tipo) {
+    public Transaccion toEntity(TransaccionRequest dto, TipoTransaccion tipo, Long userId) {
         if (dto == null) return null;
 
         Transaccion transaccion = new Transaccion();
@@ -34,9 +30,9 @@ public class TransaccionMapper {
         transaccion.setCuotaActual(dto.cuotaActual());
 
         // Relaciones
-        if (dto.userId() != null) {
+        if (userId != null) {
             AppUser user = new AppUser();
-            user.setId(dto.userId());
+            user.setId(userId);
             transaccion.setUser(user);
         }
 
@@ -87,12 +83,27 @@ public class TransaccionMapper {
                 entity.getCuotaActual(),
                 entity.getCreadoEn(),
                 entity.getCuenta() != null ? entity.getCuenta().getId() : null,
+                entity.getCuenta() != null ? entity.getCuenta().getNombre() : null,
                 entity.getCategoria() != null ? entity.getCategoria().getId() : null,
+                entity.getCategoria() != null ? entity.getCategoria().getNombre() : null,
+                entity.getCategoria() != null ? entity.getCategoria().getParent() != null : null,
+                entity.getCategoria() != null ? resolverCategoriaRaizId(entity.getCategoria()) : null,
+                entity.getCategoria() != null ? resolverCategoriaRaizNombre(entity.getCategoria()) : null,
                 entity.getSubcategoria() != null ? entity.getSubcategoria().getId() : null,
+                entity.getSubcategoria() != null ? entity.getSubcategoria().getNombre() : null,
                 entity.getComercio() != null ? entity.getComercio().getId() : null,
+                entity.getComercio() != null ? entity.getComercio().getNombre() : null,
                 entity.getTags() != null
                         ? entity.getTags().stream().map(Tag::getId).collect(Collectors.toSet())
                         : Set.of()
         );
+    }
+
+    private Long resolverCategoriaRaizId(Categoria categoria) {
+        return categoria.getParent() != null ? categoria.getParent().getId() : categoria.getId();
+    }
+
+    private String resolverCategoriaRaizNombre(Categoria categoria) {
+        return categoria.getParent() != null ? categoria.getParent().getNombre() : categoria.getNombre();
     }
 }

@@ -70,6 +70,14 @@ public class ApiExceptionHandler {
             return ResponseEntity.status(statusCode).body(body);
         }
 
+        if (ex instanceof org.springframework.web.bind.MissingServletRequestParameterException msrp) {
+            body.put("status", HttpStatus.BAD_REQUEST.value());
+            body.put("error", HttpStatus.BAD_REQUEST.toString());
+            body.put("path", request.getRequestURI());
+            body.put("message", msrp.getMessage());
+            return ResponseEntity.badRequest().body(body);
+        }
+
         body.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
         body.put("error", "Internal server error");
         body.put("path", request.getRequestURI());
