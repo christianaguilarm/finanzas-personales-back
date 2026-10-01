@@ -22,9 +22,16 @@ public record TransaccionResponse(
         Integer cuotaActual,
         LocalDateTime creadoEn,
         Long cuentaId,
+        String cuentaNombre,
         Long categoriaId,
+        String categoriaNombre,
+        Boolean categoriaEsHija,
+        Long categoriaPadreId,
+        String categoriaPadreNombre,
         Long subcategoriaId,
+        String subcategoriaNombre,
         Long comercioId,
+        String comercioNombre,
         Set<Long> tagIds
 ) {
 }

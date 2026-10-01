@@ -9,4 +9,8 @@ import java.util.List;
 @Repository
 public interface CategoriaRepository extends JpaRepository<Categoria, Long> {
     List<Categoria> findByUserId(Long userId);
+
+    List<Categoria> findByParentId(Long parentId);
+
+    boolean existsByIdAndUserId(Long id, Long userId);
 }

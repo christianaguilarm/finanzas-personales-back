@@ -7,6 +7,7 @@ import org.springframework.data.jpa.domain.Specification;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.time.YearMonth;
 
 public final class TransaccionSpecifications {
 
@@ -80,6 +81,41 @@ public final class TransaccionSpecifications {
 
             return cb.and(predicates.toArray(new Predicate[0]));
         };
+    }
+
+    public static Specification<Transaccion> recurrentesParaProyeccion(Long userId) {
+        return (root, query, cb) -> cb.and(
+                cb.equal(root.get("user").get("id"), userId),
+                cb.isTrue(root.get("esRecurrente")),
+                cb.or(
+                        cb.isNull(root.get("totalCuotas")),
+                        cb.lessThanOrEqualTo(root.<Integer>get("totalCuotas"), 1)
+                )
+        );
+    }
+
+    public static Specification<Transaccion> comprasEnCuotasParaProyeccion(Long userId) {
+        return (root, query, cb) -> cb.and(
+                cb.equal(root.get("user").get("id"), userId),
+                cb.greaterThan(root.<Integer>get("totalCuotas"), 1)
+        );
+    }
+
+    /** Transacciones de una cuenta en un periodo, para el cuadre contra el estado de cuenta. */
+    public static Specification<Transaccion> paraCuadre(Long userId, Long cuentaId, YearMonth periodo) {
+        return (root, query, cb) -> cb.and(
+                cb.equal(root.get("user").get("id"), userId),
+                cb.equal(root.get("cuenta").get("id"), cuentaId),
+                cb.equal(root.get("periodoFacturacion"), periodo)
+        );
+    }
+
+    /** Transacciones ya registradas en un periodo, para mezclarlas con la proyección del mes en curso. */
+    public static Specification<Transaccion> delPeriodo(Long userId, YearMonth periodo) {
+        return (root, query, cb) -> cb.and(
+                cb.equal(root.get("user").get("id"), userId),
+                cb.equal(root.get("periodoFacturacion"), periodo)
+        );
     }
 }
 
