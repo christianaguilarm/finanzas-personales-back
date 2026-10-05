@@ -53,6 +53,8 @@ class TransaccionServiceProyeccionTest {
     @Mock
     private TransaccionMapper mapper;
     @Mock
+    private SaldoService saldoService;
+    @Mock
     private Clock clock;
 
     @InjectMocks
@@ -74,6 +76,9 @@ class TransaccionServiceProyeccionTest {
     void setUp() {
         lenient().when(clock.instant()).thenReturn(Instant.parse("2026-10-05T12:00:00Z"));
         lenient().when(clock.getZone()).thenReturn(ZoneOffset.UTC);
+        // Sin arrastre por omision: cada test que lo necesita declara el suyo.
+        lenient().when(saldoService.saldoAlInicioDelPeriodo(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(BigDecimal.ZERO);
 
         arriendo = categoria(1L, "Arriendo", null);
         pan = categoria(2L, "Pan", arriendo);
@@ -482,6 +487,40 @@ class TransaccionServiceProyeccionTest {
 
         ProyeccionResponse septiembre = proyectar(YearMonth.of(2026, 9), List.of(), List.of(sinDescripcion1, sinDescripcion2));
         assertThat(septiembre.egresoTotal()).isEqualByComparingTo("19996.00");
+    }
+
+    @Test
+    @DisplayName("El arrastre del periodo abre el total sin sumarse como ingreso del mes")
+    void elArrastreNoSeCuentaComoIngresoDelPeriodo() {
+        Transaccion ingresoSueldo = recurrente(1L, TipoTransaccion.INGRESO, cuentaCorriente, sueldo,
+                new BigDecimal("1000000.00"), "Sueldo");
+        Transaccion gastoArriendo = recurrente(2L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo,
+                new BigDecimal("700000.00"), "Pago Arriendo");
+
+        YearMonth octubre = YearMonth.of(2026, 10);
+        when(saldoService.saldoAlInicioDelPeriodo(USER_ID, octubre)).thenReturn(new BigDecimal("400000.00"));
+
+        ProyeccionResponse respuesta = proyectar(octubre, List.of(ingresoSueldo, gastoArriendo), List.of());
+
+        // El arrastre es el saldo con el que abre el periodo, no un ingreso de octubre.
+        assertThat(respuesta.saldoInicio()).isEqualByComparingTo("400000.00");
+        assertThat(respuesta.ingresoTotal()).isEqualByComparingTo("1000000.00");
+        assertThat(respuesta.egresoTotal()).isEqualByComparingTo("700000.00");
+        assertThat(respuesta.total()).isEqualByComparingTo("700000.00");
+        assertThat(respuesta.ingresosPorCategoria()).extracting(ProyeccionCategoriaResponse::categoriaNombre)
+                .containsExactly("Sueldo");
+    }
+
+    @Test
+    @DisplayName("Sin arrastre la proyección arranca en cero")
+    void sinArrastreLaProyeccionArrancaEnCero() {
+        when(saldoService.saldoAlInicioDelPeriodo(USER_ID, YearMonth.of(2026, 10)))
+                .thenReturn(new BigDecimal("0.00"));
+
+        ProyeccionResponse respuesta = proyectar(YearMonth.of(2026, 10), List.of(), List.of());
+
+        assertThat(respuesta.saldoInicio()).isEqualByComparingTo("0");
+        assertThat(respuesta.total()).isEqualByComparingTo("0");
     }
 
     private Categoria categoria(Long id, String nombre, Categoria parent) {

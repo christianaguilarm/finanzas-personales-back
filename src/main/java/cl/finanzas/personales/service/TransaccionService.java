@@ -58,6 +58,7 @@ public class TransaccionService {
     private final CuentaRepository cuentaRepository;
     private final TagRepository tagRepository;
     private final TransaccionMapper mapper;
+    private final SaldoService saldoService;
     private final Clock clock;
 
     /** Alias de columnas de la UI que no coinciden con el nombre del campo. */
@@ -361,11 +362,16 @@ public class TransaccionService {
         BigDecimal ingresoTotal = sumar(ingresos);
         BigDecimal egresoTotal = sumar(egresos);
 
+        // El arrastre se calcula aparte de los flujos del periodo: sumarlo como ingreso
+        // inflaría el total del mes y mostraría dos veces el mismo saldo.
+        BigDecimal saldoInicio = saldoService.saldoAlInicioDelPeriodo(userId, periodo);
+
         return new ProyeccionResponse(
                 periodo,
+                saldoInicio,
                 ingresoTotal,
                 egresoTotal,
-                ingresoTotal.subtract(egresoTotal),
+                saldoInicio.add(ingresoTotal).subtract(egresoTotal),
                 ingresos,
                 egresos,
                 detallarProyeccion(proyectadas, periodo)
