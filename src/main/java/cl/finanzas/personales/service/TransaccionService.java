@@ -720,10 +720,12 @@ public class TransaccionService {
                         formatearCuota(transaccion, periodo),
                         transaccion.getFecha(),
                         transaccion.getMonto(),
-                        transaccion.getTipo()
+                        transaccion.getTipo(),
+                        periodo.equals(periodoDe(transaccion))
                 ))
                 .sorted(Comparator
-                        .comparing((ProyeccionTransaccionResponse t) -> t.tipo() == TipoTransaccion.INGRESO ? 0 : 1)
+                        .comparing((ProyeccionTransaccionResponse t) -> t.esRealizada() ? 1 : 0)
+                        .thenComparing(t -> t.tipo() == TipoTransaccion.INGRESO ? 0 : 1)
                         .thenComparing(ProyeccionTransaccionResponse::monto, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
     }

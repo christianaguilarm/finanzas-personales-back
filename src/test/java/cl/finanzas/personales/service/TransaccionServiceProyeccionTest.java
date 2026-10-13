@@ -343,6 +343,64 @@ class TransaccionServiceProyeccionTest {
     }
 
     @Test
+    @DisplayName("Marca como realizada la transacción del periodo en curso y como proyectada la futura")
+    void marcaRealizadasYProyectadas() {
+        // Recurrente ya registrado en el mes en curso: ya ocurrió.
+        Transaccion arriendoOctubre = recurrente(1L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo,
+                new BigDecimal("340056.00"), "Pago Arriendo");
+        arriendoOctubre.setPeriodoFacturacion(PERIODO_EN_CURSO);
+        arriendoOctubre.setFecha(LocalDate.of(2026, 10, 5));
+
+        // Gasto puntual de octubre, ya registrado.
+        Transaccion cena = base(2L, TipoTransaccion.EGRESO, cuentaCorriente, salud,
+                new BigDecimal("12000.00"), "Cena");
+        cena.setPeriodoFacturacion(PERIODO_EN_CURSO);
+        cena.setFecha(LocalDate.of(2026, 10, 3));
+
+        // Compra en cuotas facturada en septiembre que se proyecta a octubre: todavía no ocurre.
+        Transaccion cuotaPan = cuota(3L, TipoTransaccion.EGRESO, cuentaCorriente, pan,
+                new BigDecimal("13166.00"), YearMonth.of(2026, 9), 2, 6, "Bolso");
+
+        ProyeccionResponse octubre = proyectar(PERIODO_EN_CURSO,
+                List.of(arriendoOctubre), List.of(cuotaPan),
+                List.of(arriendoOctubre, cena));
+
+        assertThat(octubre.transacciones())
+                .filteredOn(t -> "Pago Arriendo".equals(t.descripcion()))
+                .extracting(ProyeccionTransaccionResponse::esRealizada)
+                .containsExactly(true);
+        assertThat(octubre.transacciones())
+                .filteredOn(t -> "Cena".equals(t.descripcion()))
+                .extracting(ProyeccionTransaccionResponse::esRealizada)
+                .containsExactly(true);
+        assertThat(octubre.transacciones())
+                .filteredOn(t -> "Compras en cuotas".equals(t.categoria()))
+                .extracting(ProyeccionTransaccionResponse::esRealizada)
+                .containsExactly(false);
+    }
+
+    @Test
+    @DisplayName("El detalle muestra primero las transacciones proyectadas y al final las realizadas")
+    void ordenaProyectadasPrimero() {
+        Transaccion sueldoRegistrado = recurrente(1L, TipoTransaccion.INGRESO, cuentaCorriente, sueldo,
+                new BigDecimal("1000000.00"), "Sueldo");
+        sueldoRegistrado.setPeriodoFacturacion(PERIODO_EN_CURSO);
+        sueldoRegistrado.setFecha(LocalDate.of(2026, 10, 1));
+
+        Transaccion cuotaProyectada = cuota(2L, TipoTransaccion.EGRESO, cuentaCorriente, pan,
+                new BigDecimal("5000.00"), YearMonth.of(2026, 9), 1, 6, "Cuota");
+
+        ProyeccionResponse octubre = proyectar(PERIODO_EN_CURSO,
+                List.of(sueldoRegistrado), List.of(cuotaProyectada),
+                List.of(sueldoRegistrado));
+
+        // La cuota proyectada (egreso) va antes que el sueldo ya registrado (ingreso).
+        assertThat(octubre.transacciones())
+                .extracting(ProyeccionTransaccionResponse::esRealizada)
+                .containsExactly(false, true);
+    }
+
+    @Test
     @DisplayName("Las compras en cuotas se agrupan en su propia línea, no en su categoría")
     void agrupaCuotasEnLineaPropia() {
         Transaccion cuota = cuota(1L, TipoTransaccion.EGRESO, cuentaCorriente, salud,
