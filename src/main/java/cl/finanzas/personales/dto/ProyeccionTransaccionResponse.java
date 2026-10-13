@@ -8,6 +8,7 @@ import java.time.LocalDate;
 /**
  * Detalle de una transacción considerada dentro de la proyección del periodo.
  * En compras en cuotas, {@code cuota} indica el número de cuota vigente (ej. "3/12").
+ * {@code esRealizada} distingue los movimientos ya registrados de los proyectados.
  */
 public record ProyeccionTransaccionResponse(
         String descripcion,
@@ -16,6 +17,7 @@ public record ProyeccionTransaccionResponse(
         String cuota,
         LocalDate fecha,
         BigDecimal monto,
-        TipoTransaccion tipo
+        TipoTransaccion tipo,
+        boolean esRealizada
 ) {
 }

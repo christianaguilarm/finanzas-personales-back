@@ -11,24 +11,33 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class CuentaService {
     private final CuentaRepository cuentaRepository;
+    private final SaldoService saldoService;
+    private final Clock clock;
 
     @Transactional
     public CuentaResponse crearCuenta(Long userId, CuentaRequest request) {
         Cuenta cuenta = nuevaCuenta(request, userId);
-        return toResponse(cuentaRepository.save(cuenta));
+        Cuenta guardada = cuentaRepository.save(cuenta);
+        return toResponse(guardada, saldoService.saldoActual(userId, guardada, LocalDate.now(clock)));
     }
 
     @Transactional
     public List<CuentaResponse> obtenerCuentasPorUsuario(Long userId) {
-        return cuentaRepository.findByUserIdAndActivoIsTrue(userId)
-                .stream()
-                .map(CuentaService::toResponse)
+        List<Cuenta> cuentas = cuentaRepository.findByUserIdAndActivoIsTrue(userId);
+        Map<Long, BigDecimal> saldos = saldoService.saldosActuales(userId, cuentas, LocalDate.now(clock));
+
+        return cuentas.stream()
+                .map(cuenta -> toResponse(cuenta, saldos.get(cuenta.getId())))
                 .toList();
     }
 
@@ -39,9 +48,16 @@ public class CuentaService {
         cuenta.setNombre(request.nombre());
         cuenta.setMoneda(request.moneda());
         cuenta.setTipo(request.tipo());
-        cuenta.setSaldoInicial(request.saldoInicial());
 
-        return toResponse(cuentaRepository.save(cuenta));
+        // El saldo inicial solo se toca si viene en el request: es el ancla que el usuario puso
+        // al crear la cuenta y de la que dependen todos los saldos derivados. No se recalcula ni
+        // se deriva de las transacciones, y menos se pisa con cero.
+        if (request.saldoInicial() != null) {
+            cuenta.setSaldoInicial(request.saldoInicial());
+        }
+
+        Cuenta guardada = cuentaRepository.save(cuenta);
+        return toResponse(guardada, saldoService.saldoActual(userId, guardada, LocalDate.now(clock)));
     }
 
     /**
@@ -82,12 +98,18 @@ public class CuentaService {
         return cuenta;
     }
 
-    private static CuentaResponse toResponse(Cuenta cuenta) {
+    /**
+     * El saldo actual se arma acá adentro, con la sesión abierta: viene de la consulta de
+     * acumulado, no de la relación perezosa de la cuenta, así que tampoco hay DTOs que se armen
+     * fuera de la transacción.
+     */
+    private static CuentaResponse toResponse(Cuenta cuenta, BigDecimal saldoActual) {
         return new CuentaResponse(
                 cuenta.getId(),
                 cuenta.getNombre(),
                 cuenta.getTipo(),
-                cuenta.getSaldoInicial()
+                cuenta.getSaldoInicial(),
+                saldoActual
         );
     }
 }
