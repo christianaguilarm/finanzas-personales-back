@@ -584,13 +584,14 @@ public class TransaccionService {
         return new ArrayList<>(nombres.values());
     }
 
-    /** El monto y la descripción distinguen gastos que comparten un nombre genérico. */
+    /** El precio puede variar: la identidad usa nombre, descripción, categoría y comercio. */
     private String claveRecurrente(Transaccion t) {
         String nombre = t.getNombreRecurrente();
         if (nombre != null && !nombre.isBlank()) {
             return t.getTipo() + "|nombre|" + normalizarNombre(nombre)
-                    + "|" + t.getMonto().stripTrailingZeros().toPlainString()
-                    + "|" + normalizarNombre(t.getDescripcion() != null ? t.getDescripcion() : "");
+                    + "|" + normalizarNombre(t.getDescripcion() != null ? t.getDescripcion() : "")
+                    + "|categoria|" + (t.getCategoria() != null ? t.getCategoria().getId() : "null")
+                    + "|comercio|" + (t.getComercio() != null ? t.getComercio().getId() : "null");
         }
         return t.getTipo() + "|historico|"
                 + (t.getCuenta() != null ? t.getCuenta().getId() : "null") + "|"
