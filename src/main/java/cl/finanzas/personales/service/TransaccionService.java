@@ -408,14 +408,14 @@ public class TransaccionService {
         Set<String> recurrentesNombradas = new HashSet<>();
         for (Transaccion t : yaProyectadas) {
             if (t.isEsRecurrente() && t.getNombreRecurrente() != null && !t.getNombreRecurrente().isBlank()) {
-                recurrentesNombradas.add(t.getTipo() + "|" + normalizarNombre(t.getNombreRecurrente()));
+                recurrentesNombradas.add(claveRecurrente(t));
             }
         }
         return transaccionRepository.findAll(TransaccionSpecifications.delPeriodo(userId, periodo))
                 .stream()
                 .filter(transaccion -> !yaContadas.contains(transaccion.getId()))
                 .filter(t -> !t.isEsRecurrente() || t.getNombreRecurrente() == null
-                        || !recurrentesNombradas.contains(t.getTipo() + "|" + normalizarNombre(t.getNombreRecurrente())))
+                        || !recurrentesNombradas.contains(claveRecurrente(t)))
                 .toList();
     }
 
@@ -557,7 +557,7 @@ public class TransaccionService {
     private String nombreRecurrenteParaGuardar(TransaccionRequest request) {
         if (!request.esRecurrente()) return null;
         String nombre = request.nombreRecurrente() == null ? "" : limpiarNombre(request.nombreRecurrente());
-        if (nombre.isBlank() || nombre.length() > 100) {
+        if (normalizarNombre(nombre).isEmpty() || nombre.length() > 100) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "El nombre del recurrente es obligatorio y debe tener hasta 100 caracteres");
         }
@@ -570,7 +570,7 @@ public class TransaccionService {
 
     private static String normalizarNombre(String nombre) {
         return java.text.Normalizer.normalize(limpiarNombre(nombre), java.text.Normalizer.Form.NFD)
-                .replaceAll("\\p{M}+", "").toLowerCase(Locale.ROOT);
+                .replaceAll("\\p{M}+", "").replaceAll("[^\\p{L}\\p{N}]+", "").toLowerCase(Locale.ROOT);
     }
 
     @Transactional(readOnly = true)
@@ -584,6 +584,19 @@ public class TransaccionService {
         return new ArrayList<>(nombres.values());
     }
 
+    /** El monto y la descripción distinguen gastos que comparten un nombre genérico. */
+    private String claveRecurrente(Transaccion t) {
+        String nombre = t.getNombreRecurrente();
+        if (nombre != null && !nombre.isBlank()) {
+            return t.getTipo() + "|nombre|" + normalizarNombre(nombre)
+                    + "|" + t.getMonto().stripTrailingZeros().toPlainString()
+                    + "|" + normalizarNombre(t.getDescripcion() != null ? t.getDescripcion() : "");
+        }
+        return t.getTipo() + "|historico|"
+                + (t.getCuenta() != null ? t.getCuenta().getId() : "null") + "|"
+                + (t.getCategoria() != null ? t.getCategoria().getId() : "null");
+    }
+
     /** Los históricos sin nombre conservan su identidad por cuenta y categoría. */
     private List<Transaccion> deduplicarRecurrentes(List<Transaccion> recurrentes) {
         Map<String, Transaccion> porConcepto = new HashMap<>();
@@ -593,11 +606,7 @@ public class TransaccionService {
                 .thenComparing(Transaccion::getFecha)
                 .thenComparing(Transaccion::getId);
         for (Transaccion transaccion : recurrentes) {
-            String nombre = transaccion.getNombreRecurrente();
-            String clave = transaccion.getTipo() + "|" + (nombre != null && !nombre.isBlank()
-                    ? "nombre|" + normalizarNombre(nombre)
-                    : "historico|" + (transaccion.getCuenta() != null ? transaccion.getCuenta().getId() : "null")
-                    + "|" + (transaccion.getCategoria() != null ? transaccion.getCategoria().getId() : "null"));
+            String clave = claveRecurrente(transaccion);
             porConcepto.merge(clave, transaccion,
                     (existente, nuevo) -> vigencia.compare(existente, nuevo) >= 0 ? existente : nuevo);
         }
