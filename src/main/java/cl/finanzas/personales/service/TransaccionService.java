@@ -10,6 +10,7 @@ import cl.finanzas.personales.dto.TransaccionRequest;
 import cl.finanzas.personales.dto.TransaccionResponse;
 import cl.finanzas.personales.mapper.TransaccionMapper;
 import cl.finanzas.personales.model.Categoria;
+import cl.finanzas.personales.model.FrecuenciaRecurrencia;
 import cl.finanzas.personales.model.Comercio;
 import cl.finanzas.personales.model.Cuenta;
 import cl.finanzas.personales.model.TipoTransaccion;
@@ -111,6 +112,9 @@ public class TransaccionService {
         validarReferenciasUsuario(userId, request.categoriaId(), request.subcategoriaId(), request.comercioId());
 
         Transaccion transaccion = mapper.toEntity(request, tipoResuelto, userId);
+        transaccion.setNombreRecurrente(nombreRecurrenteParaGuardar(request));
+        transaccion.setFrecuenciaRecurrencia(request.esRecurrente()
+                ? (request.frecuenciaRecurrencia() != null ? request.frecuenciaRecurrencia() : FrecuenciaRecurrencia.MENSUAL) : null);
         transaccion.setCuenta(cuenta);
 
         // Cargar tags si existen
@@ -213,6 +217,9 @@ public class TransaccionService {
         transaccion.setMedio(request.medio());
         transaccion.setDescripcion(request.descripcion());
         transaccion.setEsRecurrente(request.esRecurrente());
+        transaccion.setNombreRecurrente(nombreRecurrenteParaGuardar(request));
+        transaccion.setFrecuenciaRecurrencia(request.esRecurrente()
+                ? (request.frecuenciaRecurrencia() != null ? request.frecuenciaRecurrencia() : FrecuenciaRecurrencia.MENSUAL) : null);
         transaccion.setTotalCuotas(request.totalCuotas());
         transaccion.setCuotaActual(request.cuotaActual());
 
@@ -340,7 +347,7 @@ public class TransaccionService {
                         .stream()
                         .filter(Transaccion::isEsRecurrente)
                         .toList()
-        );
+        ).stream().filter(t -> aplicaRecurrenteEnPeriodo(t, periodo)).toList();
 
         List<Transaccion> cuotasDelMes = deduplicarPlanesEnCuotas(
                 transaccionRepository.findAll(TransaccionSpecifications.comprasEnCuotasParaProyeccion(userId))
@@ -398,9 +405,17 @@ public class TransaccionService {
             yaContadas.add(transaccion.getId());
         }
 
+        Set<String> recurrentesNombradas = new HashSet<>();
+        for (Transaccion t : yaProyectadas) {
+            if (t.isEsRecurrente() && t.getNombreRecurrente() != null && !t.getNombreRecurrente().isBlank()) {
+                recurrentesNombradas.add(t.getTipo() + "|" + normalizarNombre(t.getNombreRecurrente()));
+            }
+        }
         return transaccionRepository.findAll(TransaccionSpecifications.delPeriodo(userId, periodo))
                 .stream()
                 .filter(transaccion -> !yaContadas.contains(transaccion.getId()))
+                .filter(t -> !t.isEsRecurrente() || t.getNombreRecurrente() == null
+                        || !recurrentesNombradas.contains(t.getTipo() + "|" + normalizarNombre(t.getNombreRecurrente())))
                 .toList();
     }
 
@@ -522,22 +537,70 @@ public class TransaccionService {
                 .toList();
     }
 
-    /**
-     * Un concepto recurrente se identifica por tipo + cuenta + categoría, sin importar la descripción.
-     * Si hay varias filas del mismo concepto se conserva la más reciente (mayor id).
-     */
+    @Transactional(readOnly = true)
+    public List<TransaccionResponse> obtenerRecurrentes(Long userId) {
+        return deduplicarRecurrentes(transaccionRepository.findByUser_IdAndEsRecurrenteTrue(userId))
+                .stream().sorted(Comparator.comparing(t -> normalizarNombre(
+                        t.getNombreRecurrente() != null ? t.getNombreRecurrente() : "")))
+                .map(mapper::toResponse).toList();
+    }
+
+    private boolean aplicaRecurrenteEnPeriodo(Transaccion t, YearMonth periodo) {
+        FrecuenciaRecurrencia frecuencia = t.getFrecuenciaRecurrencia() != null
+                ? t.getFrecuenciaRecurrencia() : FrecuenciaRecurrencia.MENSUAL;
+        // Los históricos mensuales mantienen el alcance temporal anterior.
+        if (frecuencia == FrecuenciaRecurrencia.MENSUAL) return true;
+        long meses = ChronoUnit.MONTHS.between(periodoDe(t), periodo);
+        return meses >= 0 && meses % frecuencia.getMeses() == 0;
+    }
+
+    private String nombreRecurrenteParaGuardar(TransaccionRequest request) {
+        if (!request.esRecurrente()) return null;
+        String nombre = request.nombreRecurrente() == null ? "" : limpiarNombre(request.nombreRecurrente());
+        if (nombre.isBlank() || nombre.length() > 100) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "El nombre del recurrente es obligatorio y debe tener hasta 100 caracteres");
+        }
+        return nombre;
+    }
+
+    private static String limpiarNombre(String nombre) {
+        return nombre.replaceAll("[\\s\\p{Z}]+", " ").strip();
+    }
+
+    private static String normalizarNombre(String nombre) {
+        return java.text.Normalizer.normalize(limpiarNombre(nombre), java.text.Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "").toLowerCase(Locale.ROOT);
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> obtenerNombresRecurrentes(Long userId) {
+        Map<String, String> nombres = new java.util.TreeMap<>();
+        transaccionRepository.findNombresRecurrentesByUserId(userId)
+                .stream()
+                .filter(n -> n != null && !n.isBlank())
+                .map(TransaccionService::limpiarNombre).sorted()
+                .forEach(n -> nombres.putIfAbsent(normalizarNombre(n), n));
+        return new ArrayList<>(nombres.values());
+    }
+
+    /** Los históricos sin nombre conservan su identidad por cuenta y categoría. */
     private List<Transaccion> deduplicarRecurrentes(List<Transaccion> recurrentes) {
         Map<String, Transaccion> porConcepto = new HashMap<>();
-
+        Comparator<Transaccion> vigencia = Comparator
+                .comparing((Transaccion t) -> t.getPeriodoFacturacion() != null
+                        ? t.getPeriodoFacturacion() : YearMonth.from(t.getFecha()))
+                .thenComparing(Transaccion::getFecha)
+                .thenComparing(Transaccion::getId);
         for (Transaccion transaccion : recurrentes) {
-            String clave = transaccion.getTipo() + "|"
-                    + (transaccion.getCuenta() != null ? transaccion.getCuenta().getId() : "null") + "|"
-                    + (transaccion.getCategoria() != null ? transaccion.getCategoria().getId() : "null");
-
+            String nombre = transaccion.getNombreRecurrente();
+            String clave = transaccion.getTipo() + "|" + (nombre != null && !nombre.isBlank()
+                    ? "nombre|" + normalizarNombre(nombre)
+                    : "historico|" + (transaccion.getCuenta() != null ? transaccion.getCuenta().getId() : "null")
+                    + "|" + (transaccion.getCategoria() != null ? transaccion.getCategoria().getId() : "null"));
             porConcepto.merge(clave, transaccion,
-                    (existente, nuevo) -> existente.getId() > nuevo.getId() ? existente : nuevo);
+                    (existente, nuevo) -> vigencia.compare(existente, nuevo) >= 0 ? existente : nuevo);
         }
-
         return new ArrayList<>(porConcepto.values());
     }
 

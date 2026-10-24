@@ -67,6 +67,13 @@ public class Transaccion {
     @Column(name = "es_recurrente", nullable = false)
     private boolean esRecurrente = false;
 
+    @Column(name = "nombre_recurrente", length = 100)
+    private String nombreRecurrente;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "frecuencia_recurrencia", length = 20)
+    private FrecuenciaRecurrencia frecuenciaRecurrencia;
+
     private Integer totalCuotas;
 
     private Integer cuotaActual;
