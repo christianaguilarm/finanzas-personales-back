@@ -256,7 +256,7 @@ class SeguridadApiTest {
         );
 
         given(jwtDecoder.decode(any())).willAnswer(invocacion -> {
-            Instant ahora = Instant.parse("2026-10-05T12:00:00Z");
+            Instant ahora = Instant.now();
             Jwt token = Jwt.withTokenValue(invocacion.getArgument(0))
                     .header("alg", "RS256")
                     .issuer("https://dev-tenant.auth0.com/")

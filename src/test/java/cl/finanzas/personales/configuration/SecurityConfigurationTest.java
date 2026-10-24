@@ -30,7 +30,7 @@ class SecurityConfigurationTest {
     private static final String ISSUER = "https://dev-tenant.auth0.com/";
     private static final String AUDIENCE_API = "https://api.finanzas-personales.dev";
     private static final Clock RELOJ = Clock.fixed(Instant.parse("2026-10-05T12:00:00Z"), ZoneOffset.UTC);
-    private static final Instant ahora = RELOJ.instant();
+    private static final Instant ahora = Instant.now();
 
     private final SecurityConfiguration configuration = new SecurityConfiguration();
 

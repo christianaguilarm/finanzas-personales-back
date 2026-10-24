@@ -1,0 +1,51 @@
+name: CI backend
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-backend-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pruebas:
+    name: Pruebas y build (Java 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: finanzas_ci
+          POSTGRES_USER: finanzas_ci
+          POSTGRES_PASSWORD: ci_only_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U finanzas_ci -d finanzas_ci"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      SPRING_PROFILES_ACTIVE: ci
+      SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/finanzas_ci
+      SPRING_DATASOURCE_USERNAME: finanzas_ci
+      SPRING_DATASOURCE_PASSWORD: ci_only_password
+    steps:
+      - name: Obtener código
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Preparar Java 17 y caché Maven
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Ejecutar todas las pruebas y construir el JAR
+        run: mvn --batch-mode --no-transfer-progress verify
