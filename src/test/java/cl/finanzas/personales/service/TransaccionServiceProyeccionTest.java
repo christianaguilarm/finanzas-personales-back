@@ -102,6 +102,32 @@ class TransaccionServiceProyeccionTest {
     }
 
     @Test
+    void distingueSuscripcionesPorMontoYDescripcionSinDuplicarOtrosMeses() {
+        Transaccion disney = recurrente(1L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, new BigDecimal("6890"), "Disney+");
+        Transaccion yt = recurrente(2L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, new BigDecimal("11000"), "YouTube Premium");
+        Transaccion otra = recurrente(3L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, new BigDecimal("2500"), "Otra");
+        Transaccion disneyActual = recurrente(4L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, new BigDecimal("6890.00"), "DÍS-NEY");
+        disneyActual.setPeriodoFacturacion(YearMonth.of(2026, 11));
+        for (Transaccion t : List.of(disney, yt, otra, disneyActual)) t.setNombreRecurrente("Suscripción");
+        var respuesta = proyectar(YearMonth.of(2026, 12), List.of(disney, yt, otra, disneyActual), List.of());
+        assertThat(respuesta.transacciones()).hasSize(3);
+        assertThat(respuesta.egresoTotal()).isEqualByComparingTo("20390");
+        when(transaccionRepository.findByUser_IdAndEsRecurrenteTrue(USER_ID)).thenReturn(List.of(disney, yt, otra, disneyActual));
+        assertThat(transaccionService.obtenerRecurrentes(USER_ID)).hasSize(3);
+        org.mockito.Mockito.verify(mapper).toResponse(disneyActual);
+        org.mockito.Mockito.verify(mapper, org.mockito.Mockito.never()).toResponse(disney);
+    }
+
+    @Test
+    void separaMontoODescripcionDiferentesAunqueElNombreCoincida() {
+        Transaccion uno = recurrente(1L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, BigDecimal.TEN, "Disney");
+        Transaccion dos = recurrente(2L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, BigDecimal.ONE, "Disney");
+        Transaccion tres = recurrente(3L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, BigDecimal.TEN, "YouTube");
+        for (Transaccion t : List.of(uno, dos, tres)) t.setNombreRecurrente("Suscripción");
+        assertThat(proyectar(YearMonth.of(2026, 12), List.of(uno, dos, tres), List.of()).transacciones()).hasSize(3);
+    }
+
+    @Test
     void respetaTodasLasFrecuenciasYElCambioDeAnio() {
         for (var frecuencia : cl.finanzas.personales.model.FrecuenciaRecurrencia.values()) {
             Transaccion t = recurrente(1L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, new BigDecimal("100"), "");
@@ -120,7 +146,7 @@ class TransaccionServiceProyeccionTest {
 
     @Test
     void listaRecurrentesDelUsuarioConSuMovimientoVigente() {
-        Transaccion anterior = recurrente(1L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, BigDecimal.ONE, "");
+        Transaccion anterior = recurrente(1L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, BigDecimal.TEN, "");
         anterior.setNombreRecurrente("Luz");
         Transaccion vigente = recurrente(2L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, BigDecimal.TEN, "");
         vigente.setNombreRecurrente("luz");
@@ -133,7 +159,7 @@ class TransaccionServiceProyeccionTest {
 
     @Test
     void mesActualNoVuelveASumarUnRecurrenteNombradoYaRepresentado() {
-        Transaccion antiguo = recurrente(1L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, new BigDecimal("70000"), "");
+        Transaccion antiguo = recurrente(1L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, new BigDecimal("80000.00"), "");
         antiguo.setNombreRecurrente("Gasto común");
         Transaccion nuevo = recurrente(2L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, new BigDecimal("80000"), "");
         nuevo.setNombreRecurrente("gasto comun");
@@ -168,13 +194,13 @@ class TransaccionServiceProyeccionTest {
     }
 
     @Test
-    void recurrenteNombradoUsaPeriodoRecienteAunqueCambieCuentaCategoriaYMonto() {
+    void recurrenteUsaPeriodoRecienteConMismoMontoYDescripcionAunqueCambieCuentaCategoria() {
         Transaccion octubre = recurrente(900L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo,
-                new BigDecimal("70000"), "Octubre");
-        octubre.setNombreRecurrente("  GÁSTO   común  ");
+                new BigDecimal("80000.00"), "Pago -- común!");
+        octubre.setNombreRecurrente("  GÁSTO -- común!  ");
         octubre.setPeriodoFacturacion(YearMonth.of(2026, 10));
         Transaccion noviembre = recurrente(2L, TipoTransaccion.EGRESO, cuenta(20L, "Otra"), salud,
-                new BigDecimal("80000"), "Noviembre");
+                new BigDecimal("80000"), "pago comun");
         noviembre.setNombreRecurrente("gasto comun");
         noviembre.setPeriodoFacturacion(YearMonth.of(2026, 11));
         ProyeccionResponse respuesta = proyectar(YearMonth.of(2026, 12), List.of(octubre, noviembre), List.of());
@@ -196,7 +222,7 @@ class TransaccionServiceProyeccionTest {
     @Test
     void sugerenciasSonUnicasNormalizadasYSinNombresVacios() {
         when(transaccionRepository.findNombresRecurrentesByUserId(USER_ID))
-                .thenReturn(List.of("Gasto común", " gasto  comun ", " "));
+                .thenReturn(List.of("Gasto común", " gasto -- comun! ", " "));
         assertThat(transaccionService.obtenerNombresRecurrentes(USER_ID)).hasSize(1);
     }
 
