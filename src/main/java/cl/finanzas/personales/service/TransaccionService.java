@@ -10,6 +10,7 @@ import cl.finanzas.personales.dto.TransaccionRequest;
 import cl.finanzas.personales.dto.TransaccionResponse;
 import cl.finanzas.personales.mapper.TransaccionMapper;
 import cl.finanzas.personales.model.Categoria;
+import cl.finanzas.personales.model.FrecuenciaRecurrencia;
 import cl.finanzas.personales.model.Comercio;
 import cl.finanzas.personales.model.Cuenta;
 import cl.finanzas.personales.model.TipoTransaccion;
@@ -112,6 +113,8 @@ public class TransaccionService {
 
         Transaccion transaccion = mapper.toEntity(request, tipoResuelto, userId);
         transaccion.setNombreRecurrente(nombreRecurrenteParaGuardar(request));
+        transaccion.setFrecuenciaRecurrencia(request.esRecurrente()
+                ? (request.frecuenciaRecurrencia() != null ? request.frecuenciaRecurrencia() : FrecuenciaRecurrencia.MENSUAL) : null);
         transaccion.setCuenta(cuenta);
 
         // Cargar tags si existen
@@ -215,6 +218,8 @@ public class TransaccionService {
         transaccion.setDescripcion(request.descripcion());
         transaccion.setEsRecurrente(request.esRecurrente());
         transaccion.setNombreRecurrente(nombreRecurrenteParaGuardar(request));
+        transaccion.setFrecuenciaRecurrencia(request.esRecurrente()
+                ? (request.frecuenciaRecurrencia() != null ? request.frecuenciaRecurrencia() : FrecuenciaRecurrencia.MENSUAL) : null);
         transaccion.setTotalCuotas(request.totalCuotas());
         transaccion.setCuotaActual(request.cuotaActual());
 
@@ -342,7 +347,7 @@ public class TransaccionService {
                         .stream()
                         .filter(Transaccion::isEsRecurrente)
                         .toList()
-        );
+        ).stream().filter(t -> aplicaRecurrenteEnPeriodo(t, periodo)).toList();
 
         List<Transaccion> cuotasDelMes = deduplicarPlanesEnCuotas(
                 transaccionRepository.findAll(TransaccionSpecifications.comprasEnCuotasParaProyeccion(userId))
@@ -530,6 +535,23 @@ public class TransaccionService {
                 .sorted(Comparator.comparing((AcumuladorLinea linea) -> linea.total).reversed())
                 .map(linea -> new CuadreCategoriaResponse(linea.id, linea.nombre, linea.total, linea.cantidad))
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<TransaccionResponse> obtenerRecurrentes(Long userId) {
+        return deduplicarRecurrentes(transaccionRepository.findByUser_IdAndEsRecurrenteTrue(userId))
+                .stream().sorted(Comparator.comparing(t -> normalizarNombre(
+                        t.getNombreRecurrente() != null ? t.getNombreRecurrente() : "")))
+                .map(mapper::toResponse).toList();
+    }
+
+    private boolean aplicaRecurrenteEnPeriodo(Transaccion t, YearMonth periodo) {
+        FrecuenciaRecurrencia frecuencia = t.getFrecuenciaRecurrencia() != null
+                ? t.getFrecuenciaRecurrencia() : FrecuenciaRecurrencia.MENSUAL;
+        // Los históricos mensuales mantienen el alcance temporal anterior.
+        if (frecuencia == FrecuenciaRecurrencia.MENSUAL) return true;
+        long meses = ChronoUnit.MONTHS.between(periodoDe(t), periodo);
+        return meses >= 0 && meses % frecuencia.getMeses() == 0;
     }
 
     private String nombreRecurrenteParaGuardar(TransaccionRequest request) {

@@ -27,6 +27,8 @@ public class TransaccionMapper {
         transaccion.setMedio(dto.medio());
         transaccion.setEsRecurrente(dto.esRecurrente());
         transaccion.setNombreRecurrente(dto.esRecurrente() ? dto.nombreRecurrente() : null);
+        transaccion.setFrecuenciaRecurrencia(dto.esRecurrente()
+                ? (dto.frecuenciaRecurrencia() != null ? dto.frecuenciaRecurrencia() : FrecuenciaRecurrencia.MENSUAL) : null);
         transaccion.setTotalCuotas(dto.totalCuotas());
         transaccion.setCuotaActual(dto.cuotaActual());
 
@@ -81,6 +83,8 @@ public class TransaccionMapper {
                 entity.getDescripcion(),
                 entity.isEsRecurrente(),
                 entity.getNombreRecurrente(),
+                entity.isEsRecurrente() ? (entity.getFrecuenciaRecurrencia() != null
+                        ? entity.getFrecuenciaRecurrencia() : FrecuenciaRecurrencia.MENSUAL) : null,
                 entity.getTotalCuotas(),
                 entity.getCuotaActual(),
                 entity.getCreadoEn(),

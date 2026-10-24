@@ -1,6 +1,7 @@
 package cl.finanzas.personales.dto;
 
 import cl.finanzas.personales.model.MedioPago;
+import cl.finanzas.personales.model.FrecuenciaRecurrencia;
 import cl.finanzas.personales.model.TipoTransaccion;
 
 import java.math.BigDecimal;
@@ -19,6 +20,7 @@ public record TransaccionResponse(
         String descripcion,
         boolean esRecurrente,
         String nombreRecurrente,
+        FrecuenciaRecurrencia frecuenciaRecurrencia,
         Integer totalCuotas,
         Integer cuotaActual,
         LocalDateTime creadoEn,

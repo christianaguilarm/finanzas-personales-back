@@ -102,6 +102,36 @@ class TransaccionServiceProyeccionTest {
     }
 
     @Test
+    void respetaTodasLasFrecuenciasYElCambioDeAnio() {
+        for (var frecuencia : cl.finanzas.personales.model.FrecuenciaRecurrencia.values()) {
+            Transaccion t = recurrente(1L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, new BigDecimal("100"), "");
+            t.setNombreRecurrente("Seguro");
+            t.setFrecuenciaRecurrencia(frecuencia);
+            t.setPeriodoFacturacion(YearMonth.of(2026, 11));
+            for (int mes = 0; mes <= 24; mes++) {
+                var respuesta = proyectar(YearMonth.of(2026, 11).plusMonths(mes), List.of(t), List.of());
+                assertThat(respuesta.transacciones()).hasSize(mes % frecuencia.getMeses() == 0 ? 1 : 0);
+            }
+            if (frecuencia != cl.finanzas.personales.model.FrecuenciaRecurrencia.MENSUAL) {
+                assertThat(proyectar(YearMonth.of(2026, 9), List.of(t), List.of()).transacciones()).isEmpty();
+            }
+        }
+    }
+
+    @Test
+    void listaRecurrentesDelUsuarioConSuMovimientoVigente() {
+        Transaccion anterior = recurrente(1L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, BigDecimal.ONE, "");
+        anterior.setNombreRecurrente("Luz");
+        Transaccion vigente = recurrente(2L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, BigDecimal.TEN, "");
+        vigente.setNombreRecurrente("luz");
+        when(transaccionRepository.findByUser_IdAndEsRecurrenteTrue(USER_ID)).thenReturn(List.of(anterior, vigente));
+        transaccionService.obtenerRecurrentes(USER_ID);
+        org.mockito.Mockito.verify(mapper).toResponse(vigente);
+        org.mockito.Mockito.verify(mapper, org.mockito.Mockito.never()).toResponse(anterior);
+        org.mockito.Mockito.verify(transaccionRepository).findByUser_IdAndEsRecurrenteTrue(USER_ID);
+    }
+
+    @Test
     void mesActualNoVuelveASumarUnRecurrenteNombradoYaRepresentado() {
         Transaccion antiguo = recurrente(1L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, new BigDecimal("70000"), "");
         antiguo.setNombreRecurrente("Gasto común");
@@ -134,7 +164,7 @@ class TransaccionServiceProyeccionTest {
     private cl.finanzas.personales.dto.TransaccionRequest requestNombre(boolean recurrente, String nombre) {
         return new cl.finanzas.personales.dto.TransaccionRequest(cuentaCorriente.getId(), TipoTransaccion.EGRESO,
                 LocalDate.of(2026, 10, 1), PERIODO_EN_CURSO, BigDecimal.TEN, null, null,
-                MedioPago.DEBITO, null, "", recurrente, nombre, null, null, java.util.Set.of());
+                MedioPago.DEBITO, null, "", recurrente, nombre, null, null, null, java.util.Set.of());
     }
 
     @Test

@@ -1,6 +1,7 @@
 package cl.finanzas.personales.dto;
 
 import cl.finanzas.personales.model.MedioPago;
+import cl.finanzas.personales.model.FrecuenciaRecurrencia;
 import cl.finanzas.personales.model.TipoTransaccion;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
@@ -27,6 +28,7 @@ public record TransaccionRequest(
         @Size(max = 300) String descripcion,
         boolean esRecurrente,
         @Size(max = 100) String nombreRecurrente,
+        FrecuenciaRecurrencia frecuenciaRecurrencia,
         @Min(value = 1, message = "El total de cuotas debe ser mayor o igual a 1") Integer totalCuotas,
         @Min(value = 0, message = "La cuota actual debe ser mayor o igual a 0") Integer cuotaActual,
         Set<Long> tagIds

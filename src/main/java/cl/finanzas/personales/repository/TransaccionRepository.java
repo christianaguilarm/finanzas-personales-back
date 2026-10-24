@@ -19,6 +19,8 @@ public interface TransaccionRepository extends JpaRepository<Transaccion, Long>,
             + "AND t.esRecurrente = true AND t.nombreRecurrente IS NOT NULL")
     List<String> findNombresRecurrentesByUserId(@Param("userId") Long userId);
 
+    List<Transaccion> findByUser_IdAndEsRecurrenteTrue(Long userId);
+
     long countByCategoriaId(Long categoriaId);
 
     long countBySubcategoriaId(Long subcategoriaId);
