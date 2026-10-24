@@ -45,6 +45,16 @@ public class TransaccionController {
      * El usuario sale del token. Una pagina vacia es un 200 con la lista vacia adentro, no un 204
      * sin body: el front deserializa la respuesta y un null lo rompia.
      */
+    @GetMapping("/recurrentes")
+    public java.util.List<TransaccionResponse> obtenerRecurrentes(@AuthenticationPrincipal Jwt jwt) {
+        return transaccionService.obtenerRecurrentes(usuarioActualService.idActual(jwt));
+    }
+
+    @GetMapping("/nombres-recurrentes")
+    public java.util.List<String> obtenerNombresRecurrentes(@AuthenticationPrincipal Jwt jwt) {
+        return transaccionService.obtenerNombresRecurrentes(usuarioActualService.idActual(jwt));
+    }
+
     @GetMapping
     public ResponseEntity<PagedModel<TransaccionResponse>> obtenerTransaccionesPorUsuario(
             @AuthenticationPrincipal Jwt jwt,
