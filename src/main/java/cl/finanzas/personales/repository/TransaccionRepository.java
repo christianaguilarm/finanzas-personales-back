@@ -15,6 +15,10 @@ import java.util.List;
 
 @Repository
 public interface TransaccionRepository extends JpaRepository<Transaccion, Long>, JpaSpecificationExecutor<Transaccion> {
+    @Query("SELECT t.nombreRecurrente FROM Transaccion t WHERE t.user.id = :userId "
+            + "AND t.esRecurrente = true AND t.nombreRecurrente IS NOT NULL")
+    List<String> findNombresRecurrentesByUserId(@Param("userId") Long userId);
+
     long countByCategoriaId(Long categoriaId);
 
     long countBySubcategoriaId(Long subcategoriaId);

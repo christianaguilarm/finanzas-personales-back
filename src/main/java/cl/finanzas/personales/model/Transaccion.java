@@ -67,6 +67,9 @@ public class Transaccion {
     @Column(name = "es_recurrente", nullable = false)
     private boolean esRecurrente = false;
 
+    @Column(name = "nombre_recurrente", length = 100)
+    private String nombreRecurrente;
+
     private Integer totalCuotas;
 
     private Integer cuotaActual;

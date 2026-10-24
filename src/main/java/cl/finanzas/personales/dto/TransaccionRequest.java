@@ -26,6 +26,7 @@ public record TransaccionRequest(
         Long comercioId,
         @Size(max = 300) String descripcion,
         boolean esRecurrente,
+        @Size(max = 100) String nombreRecurrente,
         @Min(value = 1, message = "El total de cuotas debe ser mayor o igual a 1") Integer totalCuotas,
         @Min(value = 0, message = "La cuota actual debe ser mayor o igual a 0") Integer cuotaActual,
         Set<Long> tagIds

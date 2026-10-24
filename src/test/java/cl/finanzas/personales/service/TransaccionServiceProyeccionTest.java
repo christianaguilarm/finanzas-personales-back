@@ -102,6 +102,75 @@ class TransaccionServiceProyeccionTest {
     }
 
     @Test
+    void mesActualNoVuelveASumarUnRecurrenteNombradoYaRepresentado() {
+        Transaccion antiguo = recurrente(1L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, new BigDecimal("70000"), "");
+        antiguo.setNombreRecurrente("Gasto común");
+        Transaccion nuevo = recurrente(2L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, new BigDecimal("80000"), "");
+        nuevo.setNombreRecurrente("gasto comun");
+        nuevo.setPeriodoFacturacion(PERIODO_EN_CURSO);
+        assertThat(proyectar(PERIODO_EN_CURSO, List.of(antiguo, nuevo), List.of(), List.of(antiguo, nuevo))
+                .egresoTotal()).isEqualByComparingTo("80000");
+    }
+
+    @Test
+    void validaNombreAlCrearYLoLimpiaAlDesmarcar() {
+        when(cuentaRepository.findByUserIdAndActivoIsTrue(USER_ID)).thenReturn(List.of(cuentaCorriente));
+        when(mapper.toEntity(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenAnswer(invocacion -> new Transaccion());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> transaccionService.crearTransaccion(USER_ID, requestNombre(true, "  ")))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> transaccionService.crearTransaccion(USER_ID, requestNombre(true, "x".repeat(101))))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        when(transaccionRepository.save(ArgumentMatchers.any(Transaccion.class)))
+                .thenAnswer(invocacion -> invocacion.getArgument(0));
+        transaccionService.crearTransaccion(USER_ID, requestNombre(true, "  Gasto   común  "));
+        transaccionService.crearTransaccion(USER_ID, requestNombre(false, "Ignorar"));
+        var captor = org.mockito.ArgumentCaptor.forClass(Transaccion.class);
+        org.mockito.Mockito.verify(transaccionRepository, org.mockito.Mockito.times(2)).save(captor.capture());
+        assertThat(captor.getAllValues().get(0).getNombreRecurrente()).isEqualTo("Gasto común");
+        assertThat(captor.getAllValues().get(1).getNombreRecurrente()).isNull();
+    }
+
+    private cl.finanzas.personales.dto.TransaccionRequest requestNombre(boolean recurrente, String nombre) {
+        return new cl.finanzas.personales.dto.TransaccionRequest(cuentaCorriente.getId(), TipoTransaccion.EGRESO,
+                LocalDate.of(2026, 10, 1), PERIODO_EN_CURSO, BigDecimal.TEN, null, null,
+                MedioPago.DEBITO, null, "", recurrente, nombre, null, null, java.util.Set.of());
+    }
+
+    @Test
+    void recurrenteNombradoUsaPeriodoRecienteAunqueCambieCuentaCategoriaYMonto() {
+        Transaccion octubre = recurrente(900L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo,
+                new BigDecimal("70000"), "Octubre");
+        octubre.setNombreRecurrente("  GÁSTO   común  ");
+        octubre.setPeriodoFacturacion(YearMonth.of(2026, 10));
+        Transaccion noviembre = recurrente(2L, TipoTransaccion.EGRESO, cuenta(20L, "Otra"), salud,
+                new BigDecimal("80000"), "Noviembre");
+        noviembre.setNombreRecurrente("gasto comun");
+        noviembre.setPeriodoFacturacion(YearMonth.of(2026, 11));
+        ProyeccionResponse respuesta = proyectar(YearMonth.of(2026, 12), List.of(octubre, noviembre), List.of());
+        assertThat(respuesta.egresoTotal()).isEqualByComparingTo("80000");
+        assertThat(respuesta.transacciones()).hasSize(1);
+        assertThat(respuesta.egresosPorCategoria().get(0).categoriaNombre()).isEqualTo("Salud");
+    }
+
+    @Test
+    void nombresDistintosEHistoricosPermanecenSeparados() {
+        Transaccion gas = recurrente(1L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, new BigDecimal("10"), "");
+        gas.setNombreRecurrente("Gas");
+        Transaccion luz = recurrente(2L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, new BigDecimal("20"), "");
+        luz.setNombreRecurrente("Luz");
+        Transaccion historico = recurrente(3L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo, new BigDecimal("30"), "");
+        assertThat(proyectar(YearMonth.of(2026, 12), List.of(gas, luz, historico), List.of()).transacciones()).hasSize(3);
+    }
+
+    @Test
+    void sugerenciasSonUnicasNormalizadasYSinNombresVacios() {
+        when(transaccionRepository.findNombresRecurrentesByUserId(USER_ID))
+                .thenReturn(List.of("Gasto común", " gasto  comun ", " "));
+        assertThat(transaccionService.obtenerNombresRecurrentes(USER_ID)).hasSize(1);
+    }
+
+    @Test
     @DisplayName("Deduplica recurrentes por tipo, cuenta y categoría quedándose con la más reciente")
     void deduplicaRecurrentesPorConcepto() {
         Transaccion antiguo = recurrente(1L, TipoTransaccion.EGRESO, cuentaCorriente, arriendo,

@@ -346,6 +346,7 @@ class TransaccionServiceCuadreTest {
                 transaccion.getMedio(),
                 transaccion.getDescripcion(),
                 transaccion.isEsRecurrente(),
+                transaccion.getNombreRecurrente(),
                 transaccion.getTotalCuotas(),
                 transaccion.getCuotaActual(),
                 transaccion.getCreadoEn(),
