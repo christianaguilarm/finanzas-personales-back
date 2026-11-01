@@ -15,6 +15,10 @@ import java.util.List;
 
 @Repository
 public interface TransaccionRepository extends JpaRepository<Transaccion, Long>, JpaSpecificationExecutor<Transaccion> {
+    List<Transaccion> findByUser_IdAndCategoria_CodigoSistemaAndTipo(Long userId, String codigoSistema,
+                                                                       cl.finanzas.personales.model.TipoTransaccion tipo);
+
+    List<Transaccion> findByPrestamoOrigen_Id(Long prestamoOrigenId);
     @Query("""
             SELECT t.tipo AS tipo, COALESCE(c.nombre, 'Sin categoría') AS categoria,
                    t.medio AS medio, SUM(t.monto) AS total, COUNT(t) AS cantidad

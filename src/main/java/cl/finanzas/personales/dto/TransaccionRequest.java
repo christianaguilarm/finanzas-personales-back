@@ -31,6 +31,9 @@ public record TransaccionRequest(
         FrecuenciaRecurrencia frecuenciaRecurrencia,
         @Min(value = 1, message = "El total de cuotas debe ser mayor o igual a 1") Integer totalCuotas,
         @Min(value = 0, message = "La cuota actual debe ser mayor o igual a 0") Integer cuotaActual,
-        Set<Long> tagIds
+        Set<Long> tagIds,
+        @Size(max = 120) String prestamoPersona,
+        LocalDate prestamoFechaDevolucion,
+        Long prestamoOrigenId
 ) {
 }

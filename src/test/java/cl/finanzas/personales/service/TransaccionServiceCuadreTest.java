@@ -362,7 +362,7 @@ class TransaccionServiceCuadreTest {
                 null,
                 transaccion.getComercio() != null ? transaccion.getComercio().getId() : null,
                 transaccion.getComercio() != null ? transaccion.getComercio().getNombre() : null,
-                null
+                null, null, null, null
         );
     }
 }

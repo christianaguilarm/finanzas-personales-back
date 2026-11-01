@@ -110,12 +110,14 @@ public class TransaccionService {
         }
 
         validarReferenciasUsuario(userId, request.categoriaId(), request.subcategoriaId(), request.comercioId());
+        validarPrestamo(userId, request, tipoResuelto, null);
 
         Transaccion transaccion = mapper.toEntity(request, tipoResuelto, userId);
         transaccion.setNombreRecurrente(nombreRecurrenteParaGuardar(request));
         transaccion.setFrecuenciaRecurrencia(request.esRecurrente()
                 ? (request.frecuenciaRecurrencia() != null ? request.frecuenciaRecurrencia() : FrecuenciaRecurrencia.MENSUAL) : null);
         transaccion.setCuenta(cuenta);
+        asignarPrestamo(transaccion, request);
 
         // Cargar tags si existen
         if (request.tagIds() != null && !request.tagIds().isEmpty()) {
@@ -203,6 +205,7 @@ public class TransaccionService {
         }
 
         validarReferenciasUsuario(userId, request.categoriaId(), request.subcategoriaId(), request.comercioId());
+        validarPrestamo(userId, request, tipoResuelto, transaccionId);
 
         // Actualizar campos
         transaccion.setCuenta(cuenta);
@@ -222,6 +225,7 @@ public class TransaccionService {
                 ? (request.frecuenciaRecurrencia() != null ? request.frecuenciaRecurrencia() : FrecuenciaRecurrencia.MENSUAL) : null);
         transaccion.setTotalCuotas(request.totalCuotas());
         transaccion.setCuotaActual(request.cuotaActual());
+        asignarPrestamo(transaccion, request);
 
         // Actualizar relaciones opcionales por id (si viene null, limpia la relación)
         transaccion.setCategoria(toCategoriaRef(request.categoriaId()));
@@ -258,7 +262,71 @@ public class TransaccionService {
         }
 
         transaccion.getTags().clear();
+        if (!transaccionRepository.findByPrestamoOrigen_Id(transaccionId).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El préstamo tiene devoluciones asociadas");
+        }
         transaccionRepository.delete(transaccion);
+    }
+
+    private void validarPrestamo(Long userId, TransaccionRequest request, TipoTransaccion tipo, Long transaccionId) {
+        Categoria categoria = request.categoriaId() == null ? null : categoriaRepository.findById(request.categoriaId()).orElse(null);
+        boolean esPrestamo = categoria != null && categoria.isActivo() &&
+                ("PRESTAMO_EGRESO".equals(categoria.getCodigoSistema()) || "PRESTAMO_INGRESO".equals(categoria.getCodigoSistema()));
+        if (!esPrestamo) {
+            if (request.prestamoPersona() != null || request.prestamoFechaDevolucion() != null || request.prestamoOrigenId() != null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Los datos de préstamo requieren la categoría Préstamo");
+            }
+            if (transaccionId != null && !transaccionRepository.findByPrestamoOrigen_Id(transaccionId).isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El préstamo tiene devoluciones asociadas");
+            }
+            return;
+        }
+        String codigoEsperado = tipo == TipoTransaccion.EGRESO ? "PRESTAMO_EGRESO" : "PRESTAMO_INGRESO";
+        if (!codigoEsperado.equals(categoria.getCodigoSistema())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La categoría Préstamo no coincide con el tipo de transacción");
+        }
+        if (tipo == TipoTransaccion.EGRESO) {
+            if (request.prestamoPersona() == null || request.prestamoPersona().isBlank() || request.prestamoFechaDevolucion() == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Indica a quién prestaste y la fecha esperada de devolución");
+            }
+            if (request.prestamoFechaDevolucion().isBefore(request.fecha())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La fecha de devolución no puede ser anterior al préstamo");
+            }
+            if (request.prestamoOrigenId() != null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Un préstamo nuevo no puede ser su propia devolución");
+            }
+            if (transaccionId != null) {
+                BigDecimal devuelto = transaccionRepository.findByPrestamoOrigen_Id(transaccionId).stream()
+                        .map(Transaccion::getMonto).reduce(BigDecimal.ZERO, BigDecimal::add);
+                if (request.monto().compareTo(devuelto) < 0) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El monto prestado no puede ser menor que lo ya devuelto");
+                }
+            }
+        } else {
+            if (request.prestamoPersona() != null || request.prestamoFechaDevolucion() != null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La devolución solo requiere seleccionar un préstamo pendiente");
+            }
+            if (request.prestamoOrigenId() != null) {
+                Transaccion origen = transaccionRepository.findById(request.prestamoOrigenId())
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "El préstamo no existe"));
+                if (!origen.getUser().getId().equals(userId) || origen.getTipo() != TipoTransaccion.EGRESO ||
+                        origen.getCategoria() == null || !"PRESTAMO_EGRESO".equals(origen.getCategoria().getCodigoSistema())) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El préstamo no pertenece al usuario");
+                }
+                BigDecimal devuelto = transaccionRepository.findByPrestamoOrigen_Id(origen.getId()).stream()
+                        .filter(t -> !t.getId().equals(transaccionId))
+                        .map(Transaccion::getMonto).reduce(BigDecimal.ZERO, BigDecimal::add);
+                if (devuelto.add(request.monto()).compareTo(origen.getMonto()) > 0) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La devolución supera el saldo pendiente del préstamo");
+                }
+            }
+        }
+    }
+
+    private void asignarPrestamo(Transaccion transaccion, TransaccionRequest request) {
+        transaccion.setPrestamoPersona(request.prestamoPersona() == null ? null : request.prestamoPersona().trim());
+        transaccion.setPrestamoFechaDevolucion(request.prestamoFechaDevolucion());
+        transaccion.setPrestamoOrigen(request.prestamoOrigenId() == null ? null : transaccionRepository.findById(request.prestamoOrigenId()).orElseThrow());
     }
 
     private void validarReferenciasUsuario(Long userId, Long categoriaId, Long subcategoriaId, Long comercioId) {

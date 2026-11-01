@@ -202,7 +202,8 @@ class TransaccionServiceProyeccionTest {
     private cl.finanzas.personales.dto.TransaccionRequest requestNombre(boolean recurrente, String nombre) {
         return new cl.finanzas.personales.dto.TransaccionRequest(cuentaCorriente.getId(), TipoTransaccion.EGRESO,
                 LocalDate.of(2026, 10, 1), PERIODO_EN_CURSO, BigDecimal.TEN, null, null,
-                MedioPago.DEBITO, null, "", recurrente, nombre, null, null, null, java.util.Set.of());
+                MedioPago.DEBITO, null, "", recurrente, nombre, null, null, null, java.util.Set.of(),
+                null, null, null);
     }
 
     @Test
