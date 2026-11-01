@@ -55,7 +55,19 @@ La UI muestra este uso de datos antes de enviar. No se envían JWT ni credencial
 
 ## Persistencia y confirmación
 
-Hibernate crea `propuesta_asistente` con `ddl-auto=update`. Las propuestas tienen dueño
+En local, Hibernate crea `propuesta_asistente` con `ddl-auto=update`.
+**En producción se usa `ddl-auto=validate`: la tabla debe crearse antes del arranque.**
+Ejecutar manualmente `sql/V2__propuesta_asistente.sql` sobre la base de datos de producción,
+con el mismo esquema que usa la aplicación. No hay Flyway/Liquibase que ejecute los scripts
+de `sql/` automáticamente. El script solo crea la tabla nueva si falta; no borra datos.
+Después, reiniciar el backend y verificar `/api/health` y `/api/health/db`.
+Mantener `ddl-auto=validate` en producción.
+
+Si el log muestra `Schema-validation: missing table [propuesta_asistente]`, falta ese paso.
+Configurar la clave de IA o deshabilitar la IA no resuelve una tabla faltante, porque
+Hibernate valida todas las entidades antes de que el backend pueda atender solicitudes.
+
+Las propuestas tienen dueño
 y vencen a los 30 minutos. No son transacciones financieras y no alteran saldos.
 La confirmación obtiene un bloqueo de fila y crea el movimiento dentro de la misma
 transacción de base de datos. Repetir el mismo UUID devuelve el id ya creado, incluso si
