@@ -35,6 +35,9 @@ public record TransaccionResponse(
         String subcategoriaNombre,
         Long comercioId,
         String comercioNombre,
-        Set<Long> tagIds
+        Set<Long> tagIds,
+        String prestamoPersona,
+        LocalDate prestamoFechaDevolucion,
+        Long prestamoOrigenId
 ) {
 }

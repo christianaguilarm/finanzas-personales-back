@@ -57,4 +57,10 @@ public class CategoriaController {
         categoriaService.eliminarCategoria(id, usuarioActualService.idActual(jwt));
         return ResponseEntity.noContent().build();
     }
+
+    @PostMapping("/prestamo/reactivar")
+    public ResponseEntity<Void> reactivarPrestamos(@AuthenticationPrincipal Jwt jwt) {
+        categoriaService.reactivarCategoriasPrestamo(usuarioActualService.idActual(jwt));
+        return ResponseEntity.noContent().build();
+    }
 }

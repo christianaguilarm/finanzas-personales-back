@@ -5,6 +5,7 @@ import cl.finanzas.personales.dto.CategoriaResponse;
 import cl.finanzas.personales.model.AppUser;
 import cl.finanzas.personales.model.Categoria;
 import cl.finanzas.personales.repository.CategoriaRepository;
+import cl.finanzas.personales.repository.AppUserRepository;
 import cl.finanzas.personales.repository.TransaccionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -13,18 +14,48 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import cl.finanzas.personales.model.TipoTransaccion;
 
 @Service
 @RequiredArgsConstructor
 public class CategoriaService {
     private final CategoriaRepository categoriaRepository;
+    private final AppUserRepository appUserRepository;
     private final TransaccionRepository transaccionRepository;
 
+    @Transactional
     public List<CategoriaResponse> obtenerCategoriasPorUsuario(Long userId) {
+        asegurarCategoriasPrestamo(userId);
         return categoriaRepository.findByUserId(userId)
                 .stream()
+                .filter(Categoria::isActivo)
                 .map(this::toResponse)
                 .toList();
+    }
+
+    private void asegurarCategoriasPrestamo(Long userId) {
+        appUserRepository.bloquearPorId(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "El usuario no existe"));
+        List<Categoria> categorias = categoriaRepository.findByUserId(userId);
+        for (TipoTransaccion tipo : List.of(TipoTransaccion.EGRESO, TipoTransaccion.INGRESO)) {
+            String codigo = tipo == TipoTransaccion.EGRESO ? "PRESTAMO_EGRESO" : "PRESTAMO_INGRESO";
+            if (categorias.stream().anyMatch(c -> codigo.equals(c.getCodigoSistema()))) continue;
+            Categoria existente = categorias.stream()
+                    .filter(c -> c.getTipo() == tipo && c.getParent() == null)
+                    .filter(c -> c.getNombre().equalsIgnoreCase("Prestado") || c.getNombre().equalsIgnoreCase("Prestamo")
+                            || c.getNombre().equalsIgnoreCase("Préstamo"))
+                    .findFirst().orElse(null);
+            if (existente == null) {
+                existente = new Categoria();
+                AppUser user = new AppUser();
+                user.setId(userId);
+                existente.setUser(user);
+                existente.setTipo(tipo);
+                existente.setNombre("Préstamo");
+            }
+            existente.setCodigoSistema(codigo);
+            categoriaRepository.save(existente);
+        }
     }
 
     @Transactional
@@ -46,6 +77,10 @@ public class CategoriaService {
     @Transactional
     public CategoriaResponse actualizarCategoria(Long id, Long userId, CategoriaRequest request) {
         Categoria categoria = obtenerCategoriaDelUsuario(id, userId);
+        if (categoria.getCodigoSistema() != null && (categoria.getTipo() != request.tipo() || request.parentId() != null)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "La categoría Préstamo debe mantener su tipo y no puede ser subcategoría");
+        }
         categoria.setNombre(request.nombre());
         categoria.setTipo(request.tipo());
         categoria.setIcono(request.icono());
@@ -63,6 +98,13 @@ public class CategoriaService {
     @Transactional
     public void eliminarCategoria(Long id, Long userId) {
         Categoria categoria = obtenerCategoriaDelUsuario(id, userId);
+
+        if (categoria.getCodigoSistema() != null && categoria.getCodigoSistema().startsWith("PRESTAMO_")) {
+            categoriaRepository.findByUserId(userId).stream()
+                    .filter(c -> c.getCodigoSistema() != null && c.getCodigoSistema().startsWith("PRESTAMO_"))
+                    .forEach(c -> c.setActivo(false));
+            return;
+        }
 
         List<Categoria> subcategorias = categoriaRepository.findByParentId(id);
         if (!subcategorias.isEmpty()) {
@@ -82,6 +124,14 @@ public class CategoriaService {
         }
 
         categoriaRepository.delete(categoria);
+    }
+
+    @Transactional
+    public void reactivarCategoriasPrestamo(Long userId) {
+        asegurarCategoriasPrestamo(userId);
+        categoriaRepository.findByUserId(userId).stream()
+                .filter(c -> c.getCodigoSistema() != null && c.getCodigoSistema().startsWith("PRESTAMO_"))
+                .forEach(c -> c.setActivo(true));
     }
 
     private Categoria obtenerCategoriaDelUsuario(Long id, Long userId) {
@@ -140,7 +190,8 @@ public class CategoriaService {
                 categoria.getTipo().name(),
                 categoria.getIcono(),
                 categoria.getColor(),
-                categoria.getParent() != null ? categoria.getParent().getId() : null
+                categoria.getParent() != null ? categoria.getParent().getId() : null,
+                categoria.getCodigoSistema()
         );
     }
 }

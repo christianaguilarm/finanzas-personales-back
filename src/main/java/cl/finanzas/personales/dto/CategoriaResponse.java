@@ -14,4 +14,5 @@ public class CategoriaResponse {
     private String icono;
     private String color;
     private Long parentId;
+    private String codigoSistema;
 }
