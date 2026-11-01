@@ -101,7 +101,10 @@ public class TransaccionMapper {
                 entity.getComercio() != null ? entity.getComercio().getNombre() : null,
                 entity.getTags() != null
                         ? entity.getTags().stream().map(Tag::getId).collect(Collectors.toSet())
-                        : Set.of()
+                        : Set.of(),
+                entity.getPrestamoPersona(),
+                entity.getPrestamoFechaDevolucion(),
+                entity.getPrestamoOrigen() != null ? entity.getPrestamoOrigen().getId() : null
         );
     }
 

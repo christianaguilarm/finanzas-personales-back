@@ -29,6 +29,13 @@ public class Categoria {
     @Column(nullable = false, length = 80)
     private String nombre;
 
+    @Column(name = "codigo_sistema", length = 30)
+    private String codigoSistema;
+
+    @Builder.Default
+    @Column(nullable = false)
+    private boolean activo = true;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private TipoTransaccion tipo;

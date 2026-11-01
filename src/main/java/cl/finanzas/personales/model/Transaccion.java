@@ -64,6 +64,16 @@ public class Transaccion {
     @Column(length = 300)
     private String descripcion;
 
+    @Column(name = "prestamo_persona", length = 120)
+    private String prestamoPersona;
+
+    @Column(name = "prestamo_fecha_devolucion")
+    private LocalDate prestamoFechaDevolucion;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "prestamo_origen_id")
+    private Transaccion prestamoOrigen;
+
     @Column(name = "es_recurrente", nullable = false)
     private boolean esRecurrente = false;
 
