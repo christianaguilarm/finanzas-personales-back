@@ -4,6 +4,7 @@ import cl.finanzas.personales.configuration.AsistenteProperties;
 import cl.finanzas.personales.dto.AsistenteChatRequest;
 import cl.finanzas.personales.dto.AsistenteChatResponse;
 import cl.finanzas.personales.repository.TransaccionRepository;
+import cl.finanzas.personales.service.telegram.TelegramPreferenciasService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,6 +30,7 @@ class AsistenteServiceTest {
     private final CategoriaService categorias = mock(CategoriaService.class);
     private final TransaccionService transacciones = mock(TransaccionService.class);
     private final TransaccionRepository repository = mock(TransaccionRepository.class);
+    private final TelegramPreferenciasService preferencias = mock(TelegramPreferenciasService.class);
     private AsistenteService service;
 
     @BeforeEach
@@ -36,9 +38,48 @@ class AsistenteServiceTest {
         properties.setApiKey("clave-de-prueba");
         var clock = Clock.fixed(Instant.parse("2026-11-01T01:00:00Z"), ZoneId.of("America/Santiago"));
         service = new AsistenteService(properties, client, propuestas, cuentas, categorias,
-                transacciones, repository, mapper, clock);
+                transacciones, repository, mapper, clock, preferencias);
         when(cuentas.obtenerCuentasPorUsuario(7L)).thenReturn(List.of());
         when(categorias.obtenerCategoriasPorUsuario(7L)).thenReturn(List.of());
+    }
+
+    @Test
+    void telegramCompletaElBorradorAntesDeValidarloSinPedirCuentaNiPeriodo() throws Exception {
+        var conexiones = mock(cl.finanzas.personales.repository.TelegramConexionRepository.class);
+        var usuarios = mock(cl.finanzas.personales.repository.AppUserRepository.class);
+        var cuentasRepo = mock(cl.finanzas.personales.repository.CuentaRepository.class);
+        var categoriasRepo = mock(cl.finanzas.personales.repository.CategoriaRepository.class);
+        var usuario = new cl.finanzas.personales.model.AppUser(); usuario.setId(7L);
+        var conexion = new cl.finanzas.personales.model.TelegramConexion();
+        conexion.setUserId(7L); conexion.setCuentaPredeterminadaId(2L); conexion.setCategoriaPredeterminadaId(10L);
+        when(conexiones.findById(7L)).thenReturn(java.util.Optional.of(conexion));
+        var cuenta = new cl.finanzas.personales.model.Cuenta(); cuenta.setId(2L); cuenta.setUser(usuario); cuenta.setActivo(true);
+        when(cuentasRepo.findById(2L)).thenReturn(java.util.Optional.of(cuenta));
+        var categoria = new cl.finanzas.personales.model.Categoria(); categoria.setId(10L); categoria.setUser(usuario);
+        categoria.setActivo(true); categoria.setTipo(cl.finanzas.personales.model.TipoTransaccion.EGRESO);
+        when(categoriasRepo.findById(10L)).thenReturn(java.util.Optional.of(categoria));
+        var reloj = Clock.fixed(Instant.parse("2026-12-01T01:00:00Z"), java.time.ZoneOffset.UTC);
+        var reales = new TelegramPreferenciasService(conexiones, usuarios, cuentasRepo, categoriasRepo, reloj);
+        service = new AsistenteService(properties, client, propuestas, cuentas, categorias, transacciones, repository, mapper, reloj, reales);
+        var p = new AsistenteChatResponse.Propuesta(UUID.randomUUID(), Instant.parse("2026-12-01T01:30:00Z"), null, "Cuenta", "Categoría");
+        when(propuestas.preparar(eq(7L), any())).thenReturn(p);
+        when(client.conversar(anyList(), any())).thenReturn(tool("preparar_movimiento",
+                "{\"tipo\":\"EGRESO\",\"fecha\":\"2026-09-15\",\"monto\":5000,\"medio\":\"CREDITO\"}"), respuesta("Revisa la propuesta"));
+        var resultado = service.conversarTelegram(7L, request("Registra un gasto de 5 lucas a crédito"));
+        var captor = ArgumentCaptor.forClass(cl.finanzas.personales.dto.TransaccionRequest.class);
+        verify(propuestas).preparar(eq(7L), captor.capture());
+        assertEquals(2L, captor.getValue().cuentaId());
+        assertEquals(10L, captor.getValue().categoriaId());
+        assertEquals(java.time.YearMonth.of(2026, 11), captor.getValue().periodoFacturacion());
+        assertEquals(1, resultado.propuestas().size());
+        var herramientas = ArgumentCaptor.forClass(JsonNode.class);
+        verify(client, times(2)).conversar(anyList(), herramientas.capture());
+        for (var h : herramientas.getValue()) {
+            if ("preparar_movimiento".equals(h.path("function").path("name").asText())) {
+                assertFalse(h.path("function").path("parameters").path("required").toString().contains("cuentaId"));
+            }
+        }
+        verifyNoInteractions(transacciones);
     }
 
     @Test

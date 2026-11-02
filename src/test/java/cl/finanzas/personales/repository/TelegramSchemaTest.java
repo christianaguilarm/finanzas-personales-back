@@ -18,10 +18,11 @@ class TelegramSchemaTest {
     void migracionEsCompatibleConHibernateValidateYNoBorraDatosAlRepetirse() throws Exception {
         var ds = new JdbcDataSource();
         ds.setURL("jdbc:h2:mem:" + UUID.randomUUID() + ";MODE=PostgreSQL;DB_CLOSE_DELAY=-1");
-        var script = new ResourceDatabasePopulator(new FileSystemResource("sql/V3__telegram.sql"));
+        var script = new ResourceDatabasePopulator(new FileSystemResource("sql/V3__telegram.sql"),
+                new FileSystemResource("sql/V4__telegram_preferencias.sql"));
         script.execute(ds);
         try (var conn = ds.getConnection(); var statement = conn.createStatement()) {
-            statement.executeUpdate("insert into telegram_conexion (user_id) values (7)");
+            statement.executeUpdate("insert into telegram_conexion (user_id, cuenta_predeterminada_id, categoria_predeterminada_id) values (7, 20, 30)");
         }
         script.execute(ds);
         var registry = new StandardServiceRegistryBuilder().applySetting("hibernate.connection.datasource", ds)
@@ -32,6 +33,8 @@ class TelegramSchemaTest {
                     .getMetadataBuilder().applyPhysicalNamingStrategy(new CamelCaseToUnderscoresNamingStrategy()).build();
             try (var factory = metadata.buildSessionFactory(); var session = factory.openSession()) {
                 assertEquals("[]", session.find(TelegramConexion.class, 7L).getHistorial());
+                assertEquals(20L, session.find(TelegramConexion.class, 7L).getCuentaPredeterminadaId());
+                assertEquals(30L, session.find(TelegramConexion.class, 7L).getCategoriaPredeterminadaId());
             }
         } finally { StandardServiceRegistryBuilder.destroy(registry); }
     }

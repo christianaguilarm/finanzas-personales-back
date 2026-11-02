@@ -1,6 +1,9 @@
 package cl.finanzas.personales.controller;
 
 import cl.finanzas.personales.dto.TelegramResponse;
+import cl.finanzas.personales.dto.TelegramPreferencias;
+import cl.finanzas.personales.service.telegram.TelegramPreferenciasService;
+import jakarta.validation.Valid;
 import cl.finanzas.personales.service.UsuarioActualService;
 import cl.finanzas.personales.service.telegram.TelegramColaService;
 import cl.finanzas.personales.service.telegram.TelegramConexionService;
@@ -19,6 +22,18 @@ public class TelegramController {
     private final TelegramConexionService conexiones;
     private final TelegramColaService cola;
     private final UsuarioActualService usuario;
+    private final TelegramPreferenciasService preferencias;
+
+    @GetMapping("/preferencias")
+    public ResponseEntity<TelegramPreferencias> preferencias(@AuthenticationPrincipal Jwt jwt) {
+        return sinCache(preferencias.obtener(usuario.idActual(jwt)));
+    }
+
+    @PutMapping("/preferencias")
+    public ResponseEntity<TelegramPreferencias> guardarPreferencias(@AuthenticationPrincipal Jwt jwt,
+                                                                  @Valid @RequestBody TelegramPreferencias request) {
+        return sinCache(preferencias.guardar(usuario.idActual(jwt), request));
+    }
 
     @GetMapping("/estado")
     public ResponseEntity<TelegramResponse.Estado> estado(@AuthenticationPrincipal Jwt jwt) {
