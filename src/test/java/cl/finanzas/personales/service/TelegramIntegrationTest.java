@@ -41,7 +41,7 @@ import static org.mockito.Mockito.*;
         "app.telegram.webhook-secret=secreto-de-webhook-solo-pruebas"
 })
 @Import({TelegramIntegrationTest.Config.class, TelegramConexionService.class, TelegramBotService.class,
-        TelegramColaService.class, TelegramRegistro.class, AsistentePropuestaService.class})
+        TelegramColaService.class, TelegramRegistro.class, AsistentePropuestaService.class, TelegramPreferenciasService.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class TelegramIntegrationTest {
     private static final Instant AHORA = Instant.parse("2026-11-01T18:00:00Z");
@@ -54,6 +54,8 @@ class TelegramIntegrationTest {
     @Autowired AppUserRepository usuarios;
     @Autowired ObjectMapper mapper;
     @Autowired TelegramProperties properties;
+    @Autowired TelegramPreferenciasService preferencias;
+    @Autowired AsistentePropuestaService propuestasService;
     @MockitoBean AsistenteService asistente;
     @MockitoBean TelegramApiClient api;
     @MockitoBean TransaccionService transacciones;
@@ -89,6 +91,43 @@ class TelegramIntegrationTest {
         conexiones.deleteAll();
         propuestas.deleteAll();
         usuarios.deleteAll();
+    }
+
+    @Test
+    void unaPreferenciaInvalidaPermitePedirOtraOpcionSinInvalidarLaRespuestaDelBot() throws Exception {
+        conectar(usuario, 123L);
+        var conexion = conexiones.findById(usuario.getId()).orElseThrow();
+        conexion.setCuentaPredeterminadaId(99999999L);
+        conexiones.saveAndFlush(conexion);
+        var ia = mock(AsistenteIaClient.class);
+        var respuestaTool = mapper.createObjectNode().put("role", "assistant");
+        respuestaTool.putArray("tool_calls").addObject().put("id", "call_1").put("type", "function")
+                .putObject("function").put("name", "preparar_movimiento")
+                .put("arguments", "{\"tipo\":\"EGRESO\",\"fecha\":\"2026-11-01\",\"monto\":5000,\"medio\":\"DEBITO\"}");
+        when(ia.conversar(anyList(), any())).thenReturn(respuestaTool,
+                mapper.createObjectNode().put("role", "assistant").put("content", "Elige otra cuenta para este gasto."));
+        var propertiesIA = new AsistenteProperties(); propertiesIA.setApiKey("clave-solo-pruebas");
+        var agente = new AsistenteService(propertiesIA, ia, propuestasService, cuentas, categorias, transacciones,
+                mock(TransaccionRepository.class), mapper, Clock.fixed(AHORA, ZoneOffset.UTC), preferencias);
+        when(asistente.conversarTelegram(eq(usuario.getId()), any())).thenAnswer(i -> agente.conversarTelegram(i.getArgument(0), i.getArgument(1)));
+        recibir(mensaje(1, 123));
+        cola.procesarSiguiente();
+        assertTrue(updates.findById(1L).orElseThrow().getRespuestas().contains("Elige otra cuenta"));
+        assertEquals(0, propuestas.count());
+        verifyNoInteractions(transacciones);
+    }
+
+    @Test
+    void desconectarYReconectarConservaLasPreferencias() {
+        conectar(usuario, 123L);
+        var c = conexiones.findById(usuario.getId()).orElseThrow();
+        c.setCuentaPredeterminadaId(20L); c.setCategoriaPredeterminadaId(30L);
+        conexiones.saveAndFlush(c);
+        vinculacion.desvincular(usuario.getId());
+        conectar(usuario, 123L);
+        var reconectada = conexiones.findById(usuario.getId()).orElseThrow();
+        assertEquals(20L, reconectada.getCuentaPredeterminadaId());
+        assertEquals(30L, reconectada.getCategoriaPredeterminadaId());
     }
 
     @Test

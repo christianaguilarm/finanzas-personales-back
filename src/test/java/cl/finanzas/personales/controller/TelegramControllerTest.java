@@ -6,6 +6,7 @@ import cl.finanzas.personales.dto.TelegramResponse;
 import cl.finanzas.personales.service.UsuarioActualService;
 import cl.finanzas.personales.service.telegram.TelegramColaService;
 import cl.finanzas.personales.service.telegram.TelegramConexionService;
+import cl.finanzas.personales.service.telegram.TelegramPreferenciasService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -36,13 +37,33 @@ class TelegramControllerTest {
     @MockitoBean TelegramColaService cola;
     @MockitoBean UsuarioActualService usuario;
     @MockitoBean JwtDecoder decoder;
+    @MockitoBean TelegramPreferenciasService preferencias;
 
     @Test
     void gestionarElVinculoRequiereAuth0() throws Exception {
         mvc.perform(get("/telegram/estado")).andExpect(status().isUnauthorized());
         mvc.perform(post("/telegram/vincular")).andExpect(status().isUnauthorized());
         mvc.perform(post("/telegram/desvincular")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/telegram/preferencias")).andExpect(status().isUnauthorized());
+        mvc.perform(put("/telegram/preferencias").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
         verifyNoInteractions(conexiones, cola);
+    }
+
+    @Test
+    void preferenciasUsanLaIdentidadDelTokenYValidanIdsPositivos() throws Exception {
+        when(usuario.idActual(any())).thenReturn(7L);
+        var valores = new cl.finanzas.personales.dto.TelegramPreferencias(2L, 10L);
+        when(preferencias.guardar(7L, valores)).thenReturn(valores);
+        mvc.perform(put("/telegram/preferencias").with(jwt()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"cuentaId\":2,\"categoriaId\":10,\"userId\":999}"))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.cuentaId").value(2));
+        verify(preferencias).guardar(7L, valores);
+        mvc.perform(put("/telegram/preferencias").with(jwt()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"cuentaId\":0,\"categoriaId\":-1}"))
+                .andExpect(status().isBadRequest());
+        verify(preferencias, times(1)).guardar(anyLong(), any());
     }
 
     @Test

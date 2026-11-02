@@ -55,6 +55,33 @@ el JWT de Auth0; el webhook requiere el secreto enviado por Telegram en
 
 ## Conversación y confirmaciones
 
+### Valores predeterminados por usuario
+
+Aplicar manualmente `sql/V4__telegram_preferencias.sql` después de V3 y antes de desplegar esta
+versión en producción. No requiere registrar nuevamente el webhook ni volver a vincular el bot.
+
+En **Conectar Telegram → Configurar valores predeterminados**, elegir una cuenta propia activa
+y una categoría/subcategoría de gasto. `GET /api/telegram/preferencias` y
+`PUT /api/telegram/preferencias` requieren Auth0 y usan únicamente el usuario del token.
+Enviar `null` quita una elección. Las preferencias persisten al desconectar/reconectar.
+
+Solo se completan valores omitidos al preparar una propuesta en Telegram:
+
+- Sin período: mes actual calculado con el `Clock` inyectado y la zona `America/Santiago`,
+  también para crédito y aunque la fecha del movimiento sea de otro mes.
+- Sin cuenta: cuenta marcada; si no hay preferencia, el bot debe obtener una cuenta válida.
+- Sin categoría de EGRESO: categoría marcada. Si es hija se completan su padre y su id.
+  No se aplica esta categoría a ingresos ni se permite marcar las categorías especiales de Préstamo.
+- Los valores explícitos tienen prioridad. Las referencias se validan de nuevo al usarlas;
+  una preferencia eliminada, desactivada o ajena no se reemplaza silenciosamente por otra.
+
+El backend completa el argumento antes de validar/persistir la propuesta; el prompt y el esquema
+de herramientas también indican al modelo cuándo omitir los campos. No se inventa el medio de pago.
+Los borradores ya creados mantienen sus valores aunque cambien las preferencias o el mes.
+El chat web conserva su comportamiento previo; estas preferencias pertenecen al canal Telegram.
+
+### Operación del bot
+
 - `/start` y `/ayuda` muestran instrucciones; `/nuevo` borra el contexto conversacional.
 - Texto de hasta 2.000 caracteres. Grupos, canales y bots se ignoran. No se procesan voz ni archivos.
 - Las consultas usan las herramientas existentes del agente. Los resultados se envían como texto
