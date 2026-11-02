@@ -6,6 +6,6 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface ComercioRepository extends JpaRepository<Comercio, Long> {
+    java.util.List<Comercio> findByUserIdOrderByNombreAsc(Long userId);
     boolean existsByIdAndUserId(Long id, Long userId);
 }
-
