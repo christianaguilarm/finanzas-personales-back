@@ -61,6 +61,14 @@ public class AsistenteService {
     }
 
     public AsistenteChatResponse conversar(Long userId, AsistenteChatRequest request) {
+        return conversarPorCanal(userId, request, false);
+    }
+
+    public AsistenteChatResponse conversarTelegram(Long userId, AsistenteChatRequest request) {
+        return conversarPorCanal(userId, request, true);
+    }
+
+    private AsistenteChatResponse conversarPorCanal(Long userId, AsistenteChatRequest request, boolean telegram) {
         if (!properties.disponible()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, estado().mensaje());
         }
@@ -72,7 +80,7 @@ public class AsistenteService {
             usuariosActivos.add(userId);
         }
         try {
-            return ejecutarConversacion(userId, request);
+            return ejecutarConversacion(userId, request, telegram);
         } finally {
             synchronized (usuariosActivos) {
                 usuariosActivos.remove(userId);
@@ -81,9 +89,11 @@ public class AsistenteService {
         }
     }
 
-    private AsistenteChatResponse ejecutarConversacion(Long userId, AsistenteChatRequest request) {
+    private AsistenteChatResponse ejecutarConversacion(Long userId, AsistenteChatRequest request, boolean telegram) {
         List<JsonNode> mensajes = new ArrayList<>();
-        mensajes.add(mensaje("system", prompt(userId)));
+        mensajes.add(mensaje("system", prompt(userId) + (telegram
+                ? "\nEstás respondiendo por Telegram. Usa texto simple, sin tablas, HTML ni Markdown. Las propuestas tienen botones Confirmar y guardar y Descartar. Para otras funciones remite a la app web."
+                : "")));
         if (request.historial() != null) {
             request.historial().forEach(m -> mensajes.add(mensaje(m.role(), m.content())));
         }
