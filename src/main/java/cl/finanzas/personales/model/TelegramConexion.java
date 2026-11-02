@@ -27,4 +27,6 @@ public class TelegramConexion {
     @Column(nullable = false, length = 50000)
     private String historial = "[]";
     private Instant historialActualizadoEn;
+    private Long cuentaPredeterminadaId;
+    private Long categoriaPredeterminadaId;
 }

@@ -5,6 +5,8 @@ import cl.finanzas.personales.dto.AsistenteChatRequest;
 import cl.finanzas.personales.dto.AsistenteChatResponse;
 import cl.finanzas.personales.dto.TransaccionFiltroQuery;
 import cl.finanzas.personales.dto.TransaccionRequest;
+import cl.finanzas.personales.dto.TelegramPreferencias;
+import cl.finanzas.personales.service.telegram.TelegramPreferenciasService;
 import cl.finanzas.personales.model.TipoTransaccion;
 import cl.finanzas.personales.repository.TransaccionRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -41,6 +43,7 @@ public class AsistenteService {
     private final TransaccionRepository repository;
     private final ObjectMapper mapper;
     private final Clock clock;
+    private final TelegramPreferenciasService preferenciasTelegram;
     private final Semaphore capacidad = new Semaphore(4);
     private final Set<Long> usuariosActivos = new HashSet<>();
 
@@ -90,9 +93,11 @@ public class AsistenteService {
     }
 
     private AsistenteChatResponse ejecutarConversacion(Long userId, AsistenteChatRequest request, boolean telegram) {
+        var preferencias = telegram ? preferenciasTelegram.obtener(userId) : new TelegramPreferencias(null, null);
+        JsonNode herramientas = herramientas(telegram, preferencias);
         List<JsonNode> mensajes = new ArrayList<>();
         mensajes.add(mensaje("system", prompt(userId) + (telegram
-                ? "\nEstás respondiendo por Telegram. Usa texto simple, sin tablas, HTML ni Markdown. Las propuestas tienen botones Confirmar y guardar y Descartar. Para otras funciones remite a la app web."
+                ? instruccionesTelegram(preferencias)
                 : "")));
         if (request.historial() != null) {
             request.historial().forEach(m -> mensajes.add(mensaje(m.role(), m.content())));
@@ -104,7 +109,7 @@ public class AsistenteService {
         for (int ronda = 0; ronda < 4; ronda++) {
             JsonNode respuesta;
             try {
-                respuesta = client.conversar(mensajes, leerJson(HERRAMIENTAS));
+                respuesta = client.conversar(mensajes, herramientas);
             } catch (ResponseStatusException e) {
                 if (propuestas.isEmpty()) throw e;
                 return conPropuestas(propuestas);
@@ -127,6 +132,7 @@ public class AsistenteService {
                     JsonNode argumentos = mapper.readTree(tool.path("function").path("arguments").asText("{}"));
                     if (argumentos == null || !argumentos.isObject()) throw new IllegalArgumentException();
                     if (nombre.equals("preparar_movimiento")) {
+                        if (telegram) argumentos = preferenciasTelegram.completar(userId, preferencias, (ObjectNode) argumentos);
                         var contenido = mapper.readerFor(TransaccionRequest.class)
                                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                                 .<TransaccionRequest>readValue(argumentos.toString());
@@ -199,6 +205,42 @@ public class AsistenteService {
             }
             default -> throw new IllegalArgumentException();
         };
+    }
+
+    private JsonNode herramientas(boolean telegram, TelegramPreferencias preferencias) {
+        var herramientas = leerJson(HERRAMIENTAS);
+        if (!telegram) return herramientas;
+        for (var herramienta : herramientas) {
+            var funcion = (ObjectNode) herramienta.path("function");
+            if (!"preparar_movimiento".equals(funcion.path("name").asText())) continue;
+            funcion.put("description", "Prepara un movimiento puntual para revisión, sin guardarlo. Si el usuario omite el período, omite periodoFacturacion: el backend aplica el mes actual. Si omite cuenta o categoría y hay preferencias, omite sus ids: el backend las aplica. Los valores explícitos del usuario tienen prioridad. Pregunta solo datos faltantes sin preferencia. Nunca inventes el medio. No crear cuotas ni recurrentes.");
+            if (preferencias.cuentaId() != null) {
+                var requeridos = funcion.path("parameters").path("required");
+                for (int i = requeridos.size() - 1; i >= 0; i--) {
+                    if ("cuentaId".equals(requeridos.get(i).asText())) ((com.fasterxml.jackson.databind.node.ArrayNode) requeridos).remove(i);
+                }
+            }
+        }
+        return herramientas;
+    }
+
+    private String instruccionesTelegram(TelegramPreferencias preferencias) {
+        return """
+
+                Estás respondiendo por Telegram. Usa texto simple, sin tablas, HTML ni Markdown.
+                Las propuestas tienen botones Confirmar y guardar y Descartar. Para otras funciones remite a la app web.
+                Para este canal, las siguientes reglas reemplazan las preguntas generales sobre cuenta, categoría y período:
+                - Si el usuario NO indica período de facturación para este movimiento, omite periodoFacturacion en la herramienta.
+                  El backend aplica el mes actual %s, también para crédito. No lo deduzcas de la fecha ni de movimientos anteriores.
+                - Cuenta predeterminada configurada: %s. Si no indica cuenta para este movimiento y hay preferencia, omite cuentaId;
+                  el backend la completa. No preguntes otra vez ni arrastres la cuenta de un movimiento anterior.
+                - Categoría predeterminada para gastos (EGRESO): %s. Si hay preferencia y no indica categoría para este movimiento,
+                  omite categoriaId y subcategoriaId. NO sugieras otra a partir de la descripción: aplica la marcada por el usuario.
+                  Esta categoría no se aplica a ingresos. Si no hay preferencia, conserva el comportamiento habitual.
+                - Si el usuario elige explícitamente otros valores, envíalos y tienen prioridad sobre las preferencias.
+                - Si una preferencia ya no está disponible, pide otra opción. El medio de pago sigue siendo necesario; no lo inventes.
+                """.formatted(preferenciasTelegram.periodoActual(), preferencias.cuentaId() == null ? "ninguna" : preferencias.cuentaId(),
+                preferencias.categoriaId() == null ? "ninguna" : preferencias.categoriaId());
     }
 
     private String prompt(Long userId) {
