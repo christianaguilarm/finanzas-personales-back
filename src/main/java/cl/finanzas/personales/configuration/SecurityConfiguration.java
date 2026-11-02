@@ -79,6 +79,8 @@ public class SecurityConfiguration {
                 .cors(Customizer.withDefaults())
                 .csrf(AbstractHttpConfigurer::disable) // bearer tokens: no hay sesion ni cookies
                 .authorizeHttpRequests(auth -> auth
+                        // Telegram autentica este único POST con su secreto, no con un JWT de Auth0.
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/telegram/webhook").permitAll()
                         // Ojo: hay server.servlet.context-path=/api, asi que los matchers van
                         // SIN el prefijo. Un /api/** aqui no matchearia nada.
                         .requestMatchers("/health", "/health/db").permitAll()
