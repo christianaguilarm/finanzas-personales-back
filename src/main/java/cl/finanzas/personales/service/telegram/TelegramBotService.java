@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
 
 /** Se ejecuta dentro de la transacción de la bandeja de entrada, nunca en el webhook HTTP. */
 @Service
@@ -43,7 +44,7 @@ public class TelegramBotService {
         String texto = entrada.texto().strip();
         if (entrada.callbackId() == null && texto.startsWith("/start ")) {
             vinculacion.vincular(texto.substring(7).strip(), entrada.actorId(), entrada.chatId(), entrada.username());
-            return mensaje(entrada.chatId(), "Telegram vinculado a Finanzas Personales. Puedes consultar tus gastos o preparar un movimiento. Siempre pediré confirmación antes de guardarlo.\n\nUsa /nuevo para borrar el contexto y /ayuda para ver ejemplos. Puedes desconectar Telegram desde la app.");
+            return mensaje(entrada.chatId(), "Telegram vinculado a Finanzas Personales. Puedes consultar tus gastos, guardar notas con fecha o preparar un movimiento. Los movimientos requieren confirmación antes de guardarse; las notas se guardan directamente.\n\nUsa /nuevo para borrar el contexto y /ayuda para ver ejemplos. Puedes desconectar Telegram desde la app.");
         }
         var c = conexiones.findByTelegramUserId(entrada.actorId()).orElse(null);
         if (c == null || !entrada.chatId().equals(c.getChatId())) {
@@ -61,13 +62,14 @@ public class TelegramBotService {
             return mensaje(entrada.chatId(), "Conversación reiniciada. Tus movimientos y propuestas anteriores no se modificaron.");
         }
         if (texto.equals("/start") || texto.equals("/ayuda") || texto.equals("/help")) {
-            return mensaje(entrada.chatId(), "Tu cuenta está conectada. Puedes preguntar:\n• ¿Cuánto llevo gastado este mes?\n• Explícame mi proyección de diciembre\n• Gasté 15 lucas en bencina con débito en mi cuenta corriente\n\nRevisa las propuestas y pulsa «Confirmar y guardar». /nuevo inicia otra conversación. Para desconectar, entra a Conectar Telegram en la app.");
+            return mensaje(entrada.chatId(), "Tu cuenta está conectada. Puedes preguntar:\n• ¿Cuánto llevo gastado este mes?\n• Explícame mi proyección de diciembre\n• Recuérdame pagar la luz el 5 de noviembre\n• ¿Qué pagos tengo pendientes?\n• Gasté 15 lucas en bencina con débito en mi cuenta corriente\n\nLas notas se guardan al pedirlo. Para movimientos, revisa la propuesta y pulsa «Confirmar y guardar». /nuevo inicia otra conversación.");
         }
         if (texto.isBlank() || texto.startsWith("/") || texto.length() > 2000) {
             return mensaje(entrada.chatId(), "Por ahora recibo mensajes de texto de hasta 2.000 caracteres. Usa /ayuda para ver ejemplos.");
         }
         var historial = historial(c);
-        var resultado = asistente.conversarTelegram(c.getUserId(), new AsistenteChatRequest(texto, List.copyOf(historial)));
+        var solicitudId = UUID.nameUUIDFromBytes(("telegram:" + entrada.updateId()).getBytes(StandardCharsets.UTF_8));
+        var resultado = asistente.conversarTelegram(c.getUserId(), new AsistenteChatRequest(texto, List.copyOf(historial), solicitudId));
         // No bloquear el vínculo durante una llamada lenta a la IA. Desconectar debe seguir respondiendo.
         bloquearYValidar(c, entrada, vinculo);
         List<TelegramSalida> salidas = new ArrayList<>(mensaje(entrada.chatId(), resultado.respuesta()));
