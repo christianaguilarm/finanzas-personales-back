@@ -48,7 +48,7 @@ class AsistenteControllerTest {
 
     @Test
     void validaMensajeHistorialYRolesAntesDeLlamarAlaIA() throws Exception {
-        for (String body : List.of("{\"mensaje\":\" \"}",
+        for (String body : List.of("{\"mensaje\":\" \"}", "{\"mensaje\":\"Hola\"}",
                 "{\"mensaje\":\"" + "x".repeat(2001) + "\"}",
                 "{\"mensaje\":\"Hola\",\"historial\":[null]}",
                 "{\"mensaje\":\"Hola\",\"historial\":[{\"role\":\"system\",\"content\":\"Instrucciones\"}]}")) {
@@ -63,7 +63,7 @@ class AsistenteControllerTest {
         when(usuario.idActual(any())).thenReturn(7L);
         when(asistente.conversar(eq(7L), any())).thenReturn(new AsistenteChatResponse("Hola", List.of()));
         mvc.perform(post("/asistente/chat").with(jwt()).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mensaje\":\"Hola\",\"userId\":999}"))
+                        .content("{\"mensaje\":\"Hola\",\"solicitudId\":\"" + UUID.randomUUID() + "\",\"userId\":999}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.respuesta").value("Hola"));
         verify(asistente).conversar(eq(7L), any());
     }

@@ -108,7 +108,7 @@ class TelegramIntegrationTest {
                 mapper.createObjectNode().put("role", "assistant").put("content", "Elige otra cuenta para este gasto."));
         var propertiesIA = new AsistenteProperties(); propertiesIA.setApiKey("clave-solo-pruebas");
         var agente = new AsistenteService(propertiesIA, ia, propuestasService, cuentas, categorias, transacciones,
-                mock(TransaccionRepository.class), mapper, Clock.fixed(AHORA, ZoneOffset.UTC), preferencias);
+                mock(TransaccionRepository.class), mapper, Clock.fixed(AHORA, ZoneOffset.UTC), preferencias, mock(NotaService.class));
         when(asistente.conversarTelegram(eq(usuario.getId()), any())).thenAnswer(i -> agente.conversarTelegram(i.getArgument(0), i.getArgument(1)));
         recibir(mensaje(1, 123));
         cola.procesarSiguiente();
@@ -218,6 +218,9 @@ class TelegramIntegrationTest {
         verify(asistente, times(2)).conversarTelegram(eq(usuario.getId()), captor.capture());
         assertTrue(captor.getAllValues().get(0).historial().isEmpty());
         assertEquals(2, captor.getAllValues().get(1).historial().size());
+        assertEquals(UUID.nameUUIDFromBytes("telegram:2".getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+                captor.getAllValues().get(0).solicitudId());
+        assertNotEquals(captor.getAllValues().get(0).solicitudId(), captor.getAllValues().get(1).solicitudId());
     }
 
     @Test
