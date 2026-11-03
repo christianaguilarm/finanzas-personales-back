@@ -3,6 +3,8 @@ package cl.finanzas.personales.service;
 import cl.finanzas.personales.configuration.AsistenteProperties;
 import cl.finanzas.personales.dto.AsistenteChatRequest;
 import cl.finanzas.personales.dto.AsistenteChatResponse;
+import cl.finanzas.personales.dto.NotaRequest;
+import cl.finanzas.personales.dto.NotaResponse;
 import cl.finanzas.personales.dto.TransaccionFiltroQuery;
 import cl.finanzas.personales.dto.TransaccionRequest;
 import cl.finanzas.personales.dto.TelegramPreferencias;
@@ -44,6 +46,7 @@ public class AsistenteService {
     private final ObjectMapper mapper;
     private final Clock clock;
     private final TelegramPreferenciasService preferenciasTelegram;
+    private final NotaService notas;
     private final Semaphore capacidad = new Semaphore(4);
     private final Set<Long> usuariosActivos = new HashSet<>();
 
@@ -53,13 +56,15 @@ public class AsistenteService {
               {"type":"function","function":{"name":"listar_movimientos","description":"Página de movimientos registrados del mes por fecha. No sumar una página como si fuera el total. Permite filtrar cuenta, categoría y tipo.","parameters":{"type":"object","properties":{"periodo":{"type":"string"},"cuentaId":{"type":"integer"},"categoriaId":{"type":"integer"},"tipo":{"type":"string","enum":["INGRESO","EGRESO"]},"pagina":{"type":"integer","minimum":0},"limite":{"type":"integer","minimum":1,"maximum":30}},"additionalProperties":false}}},
               {"type":"function","function":{"name":"consultar_proyeccion","description":"Proyección oficial de la app con ingresos, egresos, arrastre, saldo y movimientos realizados o proyectados. Respeta cuotas y recurrentes.","parameters":{"type":"object","properties":{"periodo":{"type":"string"}},"additionalProperties":false}}},
               {"type":"function","function":{"name":"consultar_cuadre","description":"Cuadre oficial de una cuenta propia en un período de facturación.","parameters":{"type":"object","properties":{"periodo":{"type":"string"},"cuentaId":{"type":"integer"}},"required":["cuentaId"],"additionalProperties":false}}},
-              {"type":"function","function":{"name":"preparar_movimiento","description":"Prepara UN gasto o ingreso puntual para revisión. NO guarda la transacción. Pregunta cuenta y medio si faltan o son ambiguos. No usar para cuotas ni recurrentes. Para crédito pregunta período de facturación. Una llamada por movimiento.","parameters":{"type":"object","properties":{"cuentaId":{"type":"integer"},"tipo":{"type":"string","enum":["INGRESO","EGRESO"]},"fecha":{"type":"string","description":"yyyy-MM-dd; hoy si no se indica"},"periodoFacturacion":{"type":"string","description":"yyyy-MM"},"monto":{"type":"number","exclusiveMinimum":0},"categoriaId":{"type":"integer"},"subcategoriaId":{"type":"integer"},"medio":{"type":"string","enum":["EFECTIVO","DEBITO","CREDITO","PREPAGO","TRANSFERENCIA","OTRO"]},"descripcion":{"type":"string","maxLength":300}},"required":["cuentaId","tipo","fecha","monto","medio"],"additionalProperties":false}}}
+              {"type":"function","function":{"name":"preparar_movimiento","description":"Prepara UN gasto o ingreso puntual para revisión. NO guarda la transacción. Pregunta cuenta y medio si faltan o son ambiguos. No usar para cuotas ni recurrentes. Para crédito pregunta período de facturación. Una llamada por movimiento.","parameters":{"type":"object","properties":{"cuentaId":{"type":"integer"},"tipo":{"type":"string","enum":["INGRESO","EGRESO"]},"fecha":{"type":"string","description":"yyyy-MM-dd; hoy si no se indica"},"periodoFacturacion":{"type":"string","description":"yyyy-MM"},"monto":{"type":"number","exclusiveMinimum":0},"categoriaId":{"type":"integer"},"subcategoriaId":{"type":"integer"},"medio":{"type":"string","enum":["EFECTIVO","DEBITO","CREDITO","PREPAGO","TRANSFERENCIA","OTRO"]},"descripcion":{"type":"string","maxLength":300}},"required":["cuentaId","tipo","fecha","monto","medio"],"additionalProperties":false}}},
+              {"type":"function","function":{"name":"consultar_notas","description":"Consulta las notas guardadas del usuario, incluidos sus vencimientos y días restantes. Úsala antes de responder sobre recordatorios.","parameters":{"type":"object","properties":{},"additionalProperties":false}}},
+              {"type":"function","function":{"name":"guardar_nota","description":"Guarda directamente UNA nota. Fecha límite opcional en yyyy-MM-dd. Si la fecha indicada es ambigua, pregunta antes de llamar. No crea transacciones.","parameters":{"type":"object","properties":{"texto":{"type":"string","maxLength":1000},"fechaLimite":{"type":"string","description":"yyyy-MM-dd; omitir si no hay vencimiento"}},"required":["texto"],"additionalProperties":false}}}
             ]
             """;
 
     public AsistenteChatResponse.Estado estado() {
         return new AsistenteChatResponse.Estado(properties.disponible(), properties.disponible()
-                ? "Consulta tus finanzas o prepara un movimiento para revisarlo antes de guardar."
+                ? "Consulta tus finanzas, guarda notas o prepara un movimiento para revisarlo antes de guardar."
                 : "El asistente está en preparación. Falta habilitar la conexión con el proveedor de IA.");
     }
 
@@ -93,6 +98,8 @@ public class AsistenteService {
     }
 
     private AsistenteChatResponse ejecutarConversacion(Long userId, AsistenteChatRequest request, boolean telegram) {
+        var anterior = notas.porSolicitud(userId, request.solicitudId());
+        if (anterior.isPresent()) return confirmacionNota(anterior.get());
         var preferencias = telegram ? preferenciasTelegram.obtener(userId) : new TelegramPreferencias(null, null);
         JsonNode herramientas = herramientas(telegram, preferencias);
         List<JsonNode> mensajes = new ArrayList<>();
@@ -131,7 +138,15 @@ public class AsistenteService {
                     String nombre = tool.path("function").path("name").asText();
                     JsonNode argumentos = mapper.readTree(tool.path("function").path("arguments").asText("{}"));
                     if (argumentos == null || !argumentos.isObject()) throw new IllegalArgumentException();
-                    if (nombre.equals("preparar_movimiento")) {
+                    if (nombre.equals("guardar_nota")) {
+                        if (!argumentos.hasNonNull("texto") || argumentos.size() > (argumentos.has("fechaLimite") ? 2 : 1)) throw new IllegalArgumentException();
+                        if (!argumentos.get("texto").isTextual()
+                                || (argumentos.hasNonNull("fechaLimite") && !argumentos.get("fechaLimite").isTextual())) throw new IllegalArgumentException();
+                        String texto = argumentos.get("texto").asText();
+                        LocalDate fecha = argumentos.hasNonNull("fechaLimite")
+                                ? LocalDate.parse(argumentos.get("fechaLimite").asText()) : null;
+                        return confirmacionNota(notas.crear(userId, new NotaRequest(texto, fecha, false), request.solicitudId()));
+                    } else if (nombre.equals("preparar_movimiento")) {
                         if (telegram) argumentos = preferenciasTelegram.completar(userId, preferencias, (ObjectNode) argumentos);
                         var contenido = mapper.readerFor(TransaccionRequest.class)
                                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
@@ -164,6 +179,7 @@ public class AsistenteService {
     }
 
     private Object consultar(Long userId, String nombre, JsonNode args) {
+        if (nombre.equals("consultar_notas")) return Map.of("notas", notas.listar(userId).stream().limit(50).toList(), "hoy", notas.hoy());
         YearMonth periodo = args.hasNonNull("periodo")
                 ? YearMonth.parse(args.get("periodo").asText()) : YearMonth.now(clock);
         if (periodo.getYear() < 1900 || periodo.getYear() > 2200) throw new IllegalArgumentException();
@@ -228,7 +244,8 @@ public class AsistenteService {
         return """
 
                 Estás respondiendo por Telegram. Usa texto simple, sin tablas, HTML ni Markdown.
-                Las propuestas tienen botones Confirmar y guardar y Descartar. Para otras funciones remite a la app web.
+                Las propuestas de movimientos tienen botones Confirmar y guardar y Descartar.
+                Puedes guardar y consultar notas aquí. Para editarlas, resolverlas o borrarlas remite a la app web.
                 Para este canal, las siguientes reglas reemplazan las preguntas generales sobre cuenta, categoría y período:
                 - Si el usuario NO indica período de facturación para este movimiento, omite periodoFacturacion en la herramienta.
                   El backend aplica el mes actual %s, también para crédito. No lo deduzcas de la fecha ni de movimientos anteriores.
@@ -256,11 +273,16 @@ public class AsistenteService {
                 Puedes sugerir una categoría del catálogo. Para subcategorías usa su padre como categoriaId y su id como subcategoriaId.
                 preparar_movimiento SOLO crea un borrador. Nunca digas 'guardado', 'registrado' o 'corregido':
                 el usuario debe pulsar Confirmar y guardar en la tarjeta. No puedes confirmar mediante texto ni herramientas.
-                No tienes funciones de edición, eliminación, cuotas, recurrentes, presupuestos, recordatorios ni WhatsApp;
+                Puedes consultar y guardar notas. Una nota se guarda inmediatamente sin tarjeta de confirmación.
+                Para una fecha sin año usa la próxima ocurrencia futura solo si es inequívoca; si falta el día o el mes, pregunta.
+                No inventes una fecha ni digas que una nota fue guardada antes de usar guardar_nota.
+                Para saber vencimientos llama consultar_notas; calcula días con sus datos, nunca con el historial.
+                Solo puedes guardar una nota por mensaje. Para editar, resolver o borrar remite a la página Notas.
+                No tienes funciones de edición, eliminación, cuotas, recurrentes, presupuestos ni WhatsApp;
                 explica esas limitaciones y remite al formulario apropiado. No simules herramientas en texto.
                 Cuentas disponibles: %s
                 Categorías disponibles: %s
-                """.formatted(LocalDate.now(clock), YearMonth.now(clock),
+                """.formatted(notas.hoy(), YearMonth.now(clock.withZone(NotaService.ZONA)),
                 serializar(cuentas.obtenerCuentasPorUsuario(userId)), serializar(categorias.obtenerCategoriasPorUsuario(userId)));
     }
 
@@ -272,6 +294,12 @@ public class AsistenteService {
 
     private AsistenteChatResponse conPropuestas(List<AsistenteChatResponse.Propuesta> propuestas) {
         return new AsistenteChatResponse("Revisa los datos de cada propuesta. El movimiento se guardará cuando pulses «Confirmar y guardar».", List.copyOf(propuestas));
+    }
+
+    private AsistenteChatResponse confirmacionNota(NotaResponse nota) {
+        return new AsistenteChatResponse("Nota guardada: «" + nota.texto() + "»"
+                + (nota.fechaLimite() == null ? " (sin fecha límite)." : ". Fecha límite: " + nota.fechaLimite() + "."),
+                List.of(), nota);
     }
 
     private AsistenteChatResponse limite(List<AsistenteChatResponse.Propuesta> propuestas) {

@@ -3,6 +3,7 @@ package cl.finanzas.personales.service;
 import cl.finanzas.personales.configuration.AsistenteProperties;
 import cl.finanzas.personales.dto.AsistenteChatRequest;
 import cl.finanzas.personales.dto.AsistenteChatResponse;
+import cl.finanzas.personales.dto.NotaResponse;
 import cl.finanzas.personales.repository.TransaccionRepository;
 import cl.finanzas.personales.service.telegram.TelegramPreferenciasService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -31,6 +32,7 @@ class AsistenteServiceTest {
     private final TransaccionService transacciones = mock(TransaccionService.class);
     private final TransaccionRepository repository = mock(TransaccionRepository.class);
     private final TelegramPreferenciasService preferencias = mock(TelegramPreferenciasService.class);
+    private final NotaService notas = mock(NotaService.class);
     private AsistenteService service;
 
     @BeforeEach
@@ -38,7 +40,8 @@ class AsistenteServiceTest {
         properties.setApiKey("clave-de-prueba");
         var clock = Clock.fixed(Instant.parse("2026-11-01T01:00:00Z"), ZoneId.of("America/Santiago"));
         service = new AsistenteService(properties, client, propuestas, cuentas, categorias,
-                transacciones, repository, mapper, clock, preferencias);
+                transacciones, repository, mapper, clock, preferencias, notas);
+        when(notas.hoy()).thenReturn(java.time.LocalDate.of(2026, 10, 31));
         when(cuentas.obtenerCuentasPorUsuario(7L)).thenReturn(List.of());
         when(categorias.obtenerCategoriasPorUsuario(7L)).thenReturn(List.of());
     }
@@ -60,7 +63,7 @@ class AsistenteServiceTest {
         when(categoriasRepo.findById(10L)).thenReturn(java.util.Optional.of(categoria));
         var reloj = Clock.fixed(Instant.parse("2026-12-01T01:00:00Z"), java.time.ZoneOffset.UTC);
         var reales = new TelegramPreferenciasService(conexiones, usuarios, cuentasRepo, categoriasRepo, reloj);
-        service = new AsistenteService(properties, client, propuestas, cuentas, categorias, transacciones, repository, mapper, reloj, reales);
+        service = new AsistenteService(properties, client, propuestas, cuentas, categorias, transacciones, repository, mapper, reloj, reales, notas);
         var p = new AsistenteChatResponse.Propuesta(UUID.randomUUID(), Instant.parse("2026-12-01T01:30:00Z"), null, "Cuenta", "Categoría");
         when(propuestas.preparar(eq(7L), any())).thenReturn(p);
         when(client.conversar(anyList(), any())).thenReturn(tool("preparar_movimiento",
@@ -151,6 +154,27 @@ class AsistenteServiceTest {
         assertTrue(service.conversar(7L, request("Hola")).respuesta().contains("más específica"));
         verify(client, times(4)).conversar(anyList(), any());
         verifyNoInteractions(repository, transacciones, propuestas);
+    }
+
+    @Test
+    void guardaNotaUnaVezYConfirmaLosDatosPersistidosInclusoEnReintento() throws Exception {
+        UUID solicitud = UUID.randomUUID();
+        var guardada = new NotaResponse(11L, "Pagar luz", java.time.LocalDate.of(2026, 11, 5), false, 5L);
+        when(notas.crear(eq(7L), any(), eq(solicitud))).thenReturn(guardada);
+        when(notas.porSolicitud(7L, solicitud)).thenReturn(java.util.Optional.empty(), java.util.Optional.of(guardada));
+        when(client.conversar(anyList(), any())).thenReturn(tool("guardar_nota", "{\"texto\":\"Pagar luz\",\"fechaLimite\":\"2026-11-05\"}"));
+        var request = new AsistenteChatRequest("Acuérdate de pagar luz el 5", List.of(), solicitud);
+        assertEquals(guardada, service.conversar(7L, request).notaGuardada());
+        assertEquals(guardada, service.conversar(7L, request).notaGuardada());
+        verify(notas, times(1)).crear(eq(7L), any(), eq(solicitud));
+        verify(client, times(1)).conversar(anyList(), any());
+    }
+
+    @Test
+    void fechaInvalidaNoGuardaNota() throws Exception {
+        when(client.conversar(anyList(), any())).thenReturn(tool("guardar_nota", "{\"texto\":\"Pagar luz\",\"fechaLimite\":\"mañana\"}"), respuesta("¿Qué fecha exacta quieres?"));
+        assertTrue(service.conversar(7L, request("Pagar luz mañana")).respuesta().contains("fecha"));
+        verify(notas, never()).crear(anyLong(), any(), any());
     }
 
     @Test
