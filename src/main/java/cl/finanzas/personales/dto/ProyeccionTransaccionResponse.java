@@ -18,6 +18,17 @@ public record ProyeccionTransaccionResponse(
         LocalDate fecha,
         BigDecimal monto,
         TipoTransaccion tipo,
-        boolean esRealizada
+        boolean esRealizada,
+        Long cuentaId,
+        Long categoriaId,
+        Long subcategoriaId,
+        Long comercioId,
+        String comercioNombre,
+        String medio,
+        boolean esRecurrente,
+        String nombreRecurrente,
+        String frecuenciaRecurrencia,
+        Integer cuotaActual,
+        Integer totalCuotas
 ) {
 }
