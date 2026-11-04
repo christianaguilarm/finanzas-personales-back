@@ -7,6 +7,7 @@ import cl.finanzas.personales.model.Categoria;
 import cl.finanzas.personales.repository.CategoriaRepository;
 import cl.finanzas.personales.repository.AppUserRepository;
 import cl.finanzas.personales.repository.TransaccionRepository;
+import cl.finanzas.personales.repository.PresupuestoCategoriaRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,7 @@ public class CategoriaService {
     private final CategoriaRepository categoriaRepository;
     private final AppUserRepository appUserRepository;
     private final TransaccionRepository transaccionRepository;
+    private final PresupuestoCategoriaRepository presupuestoCategoriaRepository;
 
     @Transactional
     public List<CategoriaResponse> obtenerCategoriasPorUsuario(Long userId) {
@@ -66,6 +68,7 @@ public class CategoriaService {
         categoria.setIcono(request.icono());
         categoria.setColor(request.color());
         categoria.setParent(resolverPadre(request, userId, null));
+        categoria.setClasificacionGasto(clasificacion(request, categoria.getParent()));
 
         AppUser user = new AppUser();
         user.setId(userId);
@@ -86,6 +89,7 @@ public class CategoriaService {
         categoria.setIcono(request.icono());
         categoria.setColor(request.color());
         categoria.setParent(resolverPadre(request, userId, categoria));
+        categoria.setClasificacionGasto(clasificacion(request, categoria.getParent()));
 
         return toResponse(categoriaRepository.save(categoria));
     }
@@ -122,6 +126,9 @@ public class CategoriaService {
                     "No se puede eliminar porque tiene " + transacciones + " transacción(es) asociada(s)"
             );
         }
+
+        presupuestoCategoriaRepository.findByUserIdAndCategoriaId(userId, id)
+                .ifPresent(presupuestoCategoriaRepository::delete);
 
         categoriaRepository.delete(categoria);
     }
@@ -191,7 +198,23 @@ public class CategoriaService {
                 categoria.getIcono(),
                 categoria.getColor(),
                 categoria.getParent() != null ? categoria.getParent().getId() : null,
-                categoria.getCodigoSistema()
+                categoria.getCodigoSistema(),
+                clasificacionEfectiva(categoria) != null ? clasificacionEfectiva(categoria).name() : null
         );
+    }
+
+    private cl.finanzas.personales.model.ClasificacionGasto clasificacion(
+            CategoriaRequest request, Categoria parent) {
+        if (request.tipo() != TipoTransaccion.EGRESO) return null;
+        if (parent != null) return clasificacionEfectiva(parent);
+        return request.clasificacionGasto() != null ? request.clasificacionGasto()
+                : cl.finanzas.personales.model.ClasificacionGasto.NECESIDAD;
+    }
+
+    private cl.finanzas.personales.model.ClasificacionGasto clasificacionEfectiva(Categoria categoria) {
+        if (categoria.getTipo() != TipoTransaccion.EGRESO) return null;
+        if (categoria.getParent() != null) return clasificacionEfectiva(categoria.getParent());
+        return categoria.getClasificacionGasto() != null ? categoria.getClasificacionGasto()
+                : cl.finanzas.personales.model.ClasificacionGasto.NECESIDAD;
     }
 }
