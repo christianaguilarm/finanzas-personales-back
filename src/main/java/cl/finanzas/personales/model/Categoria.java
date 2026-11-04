@@ -40,6 +40,10 @@ public class Categoria {
     @Column(nullable = false)
     private TipoTransaccion tipo;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "clasificacion_gasto", length = 20)
+    private ClasificacionGasto clasificacionGasto;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "parent_id")
     private Categoria parent;
