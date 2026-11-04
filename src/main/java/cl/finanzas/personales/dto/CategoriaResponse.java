@@ -15,4 +15,5 @@ public class CategoriaResponse {
     private String color;
     private Long parentId;
     private String codigoSistema;
+    private String clasificacionGasto;
 }

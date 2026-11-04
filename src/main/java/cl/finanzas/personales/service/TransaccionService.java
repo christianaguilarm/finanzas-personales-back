@@ -862,7 +862,18 @@ public class TransaccionService {
                         transaccion.getFecha(),
                         transaccion.getMonto(),
                         transaccion.getTipo(),
-                        periodo.equals(periodoDe(transaccion))
+                        periodo.equals(periodoDe(transaccion)),
+                        transaccion.getCuenta() != null ? transaccion.getCuenta().getId() : null,
+                        transaccion.getCategoria() != null ? transaccion.getCategoria().getId() : null,
+                        transaccion.getSubcategoria() != null ? transaccion.getSubcategoria().getId() : null,
+                        transaccion.getComercio() != null ? transaccion.getComercio().getId() : null,
+                        transaccion.getComercio() != null ? transaccion.getComercio().getNombre() : null,
+                        transaccion.getMedio() != null ? transaccion.getMedio().name() : null,
+                        transaccion.isEsRecurrente(),
+                        transaccion.getNombreRecurrente(),
+                        transaccion.getFrecuenciaRecurrencia() != null ? transaccion.getFrecuenciaRecurrencia().name() : null,
+                        transaccion.getCuotaActual(),
+                        transaccion.getTotalCuotas()
                 ))
                 .sorted(Comparator
                         .comparing((ProyeccionTransaccionResponse t) -> t.esRealizada() ? 1 : 0)
