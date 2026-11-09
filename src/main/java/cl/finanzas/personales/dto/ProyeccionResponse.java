@@ -20,6 +20,7 @@ public record ProyeccionResponse(
         BigDecimal total,
         List<ProyeccionCategoriaResponse> ingresosPorCategoria,
         List<ProyeccionCategoriaResponse> egresosPorCategoria,
-        List<ProyeccionTransaccionResponse> transacciones
+        List<ProyeccionTransaccionResponse> transacciones,
+        List<ProyeccionTransaccionResponse> transaccionesOmitidas
 ) {
 }

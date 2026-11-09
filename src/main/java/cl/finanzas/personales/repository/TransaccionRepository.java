@@ -15,6 +15,8 @@ import java.util.List;
 
 @Repository
 public interface TransaccionRepository extends JpaRepository<Transaccion, Long>, JpaSpecificationExecutor<Transaccion> {
+    java.util.Optional<Transaccion> findByIdAndUser_Id(Long id, Long userId);
+
     List<Transaccion> findByUser_IdAndCategoria_CodigoSistemaAndTipo(Long userId, String codigoSistema,
                                                                        cl.finanzas.personales.model.TipoTransaccion tipo);
 
