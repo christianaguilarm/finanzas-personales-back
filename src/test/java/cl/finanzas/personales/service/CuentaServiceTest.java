@@ -40,6 +40,8 @@ class CuentaServiceTest {
     private CuentaRepository cuentaRepository;
     @Mock
     private SaldoService saldoService;
+    @Mock
+    private CategoriaService categoriaService;
 
     /** Reloj fijo: el saldo actual se corta con la fecha de hoy, y el test no debe depender del dia. */
     @Spy

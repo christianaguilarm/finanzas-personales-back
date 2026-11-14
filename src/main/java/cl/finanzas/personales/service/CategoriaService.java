@@ -5,6 +5,7 @@ import cl.finanzas.personales.dto.CategoriaResponse;
 import cl.finanzas.personales.model.AppUser;
 import cl.finanzas.personales.model.Categoria;
 import cl.finanzas.personales.repository.CategoriaRepository;
+import cl.finanzas.personales.repository.CuentaRepository;
 import cl.finanzas.personales.repository.AppUserRepository;
 import cl.finanzas.personales.repository.TransaccionRepository;
 import cl.finanzas.personales.repository.PresupuestoCategoriaRepository;
@@ -14,13 +15,19 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.text.Normalizer;
 import java.util.List;
+import java.util.Locale;
 import cl.finanzas.personales.model.TipoTransaccion;
 
 @Service
 @RequiredArgsConstructor
 public class CategoriaService {
+    /** Categoría de egreso con la que se paga el estado de cuenta de una tarjeta de crédito. */
+    public static final String PAGO_TARJETA_CREDITO = "PAGO_TARJETA_CREDITO";
+
     private final CategoriaRepository categoriaRepository;
+    private final CuentaRepository cuentaRepository;
     private final AppUserRepository appUserRepository;
     private final TransaccionRepository transaccionRepository;
     private final PresupuestoCategoriaRepository presupuestoCategoriaRepository;
@@ -28,6 +35,7 @@ public class CategoriaService {
     @Transactional
     public List<CategoriaResponse> obtenerCategoriasPorUsuario(Long userId) {
         asegurarCategoriasPrestamo(userId);
+        asegurarCategoriaPagoTarjeta(userId);
         return categoriaRepository.findByUserId(userId)
                 .stream()
                 .filter(Categoria::isActivo)
@@ -60,6 +68,42 @@ public class CategoriaService {
         }
     }
 
+    /**
+     * Todo usuario con al menos una cuenta de crédito activa tiene la categoría Pago Tarjeta de
+     * Crédito. Se llama al leer categorías y al crear o editar una cuenta, así que también la
+     * reciben los usuarios que ya tenían tarjetas antes de que existiera.
+     */
+    @Transactional
+    public void asegurarCategoriaPagoTarjeta(Long userId) {
+        boolean tieneCredito = cuentaRepository.findByUserIdAndActivoIsTrue(userId).stream()
+                .anyMatch(c -> c.getTipo() != null && "CREDITO".equalsIgnoreCase(c.getTipo().trim()));
+        if (!tieneCredito) return;
+        List<Categoria> categorias = categoriaRepository.findByUserId(userId);
+        if (categorias.stream().anyMatch(c -> PAGO_TARJETA_CREDITO.equals(c.getCodigoSistema()))) return;
+        Categoria categoria = categorias.stream()
+                .filter(c -> c.getTipo() == TipoTransaccion.EGRESO && c.getParent() == null && c.getCodigoSistema() == null)
+                .filter(c -> List.of("pago tarjeta de credito", "pago tarjeta credito", "pago tarjeta")
+                        .contains(normalizar(c.getNombre())))
+                .findFirst().orElse(null);
+        if (categoria == null) {
+            categoria = new Categoria();
+            AppUser user = new AppUser();
+            user.setId(userId);
+            categoria.setUser(user);
+            categoria.setTipo(TipoTransaccion.EGRESO);
+            categoria.setNombre("Pago Tarjeta de Crédito");
+            categoria.setClasificacionGasto(cl.finanzas.personales.model.ClasificacionGasto.NECESIDAD);
+        }
+        categoria.setActivo(true);
+        categoria.setCodigoSistema(PAGO_TARJETA_CREDITO);
+        categoriaRepository.save(categoria);
+    }
+
+    private static String normalizar(String texto) {
+        return Normalizer.normalize(texto == null ? "" : texto, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "").trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+    }
+
     @Transactional
     public CategoriaResponse crearCategoria(Long userId, CategoriaRequest request) {
         Categoria categoria = new Categoria();
@@ -82,7 +126,7 @@ public class CategoriaService {
         Categoria categoria = obtenerCategoriaDelUsuario(id, userId);
         if (categoria.getCodigoSistema() != null && (categoria.getTipo() != request.tipo() || request.parentId() != null)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "La categoría Préstamo debe mantener su tipo y no puede ser subcategoría");
+                    "La categoría " + categoria.getNombre() + " es del sistema: debe mantener su tipo y no puede ser subcategoría");
         }
         categoria.setNombre(request.nombre());
         categoria.setTipo(request.tipo());
@@ -108,6 +152,11 @@ public class CategoriaService {
                     .filter(c -> c.getCodigoSistema() != null && c.getCodigoSistema().startsWith("PRESTAMO_"))
                     .forEach(c -> c.setActivo(false));
             return;
+        }
+
+        if (PAGO_TARJETA_CREDITO.equals(categoria.getCodigoSistema())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "La categoría Pago Tarjeta de Crédito es del sistema y no se puede eliminar");
         }
 
         List<Categoria> subcategorias = categoriaRepository.findByParentId(id);

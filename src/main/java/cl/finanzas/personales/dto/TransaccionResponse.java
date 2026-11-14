@@ -38,6 +38,7 @@ public record TransaccionResponse(
         Set<Long> tagIds,
         String prestamoPersona,
         LocalDate prestamoFechaDevolucion,
-        Long prestamoOrigenId
+        Long prestamoOrigenId,
+        String categoriaCodigoSistema
 ) {
 }

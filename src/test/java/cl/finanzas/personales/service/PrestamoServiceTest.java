@@ -45,6 +45,42 @@ class PrestamoServiceTest {
     }
 
     @Test
+    void incluyePrestamosRecibidosYExcluyeDevoluciones() {
+        CategoriaRepository categorias = mock(CategoriaRepository.class);
+        TransaccionRepository transacciones = mock(TransaccionRepository.class);
+        Categoria categoria = new Categoria();
+        categoria.setActivo(true);
+        categoria.setCodigoSistema("PRESTAMO_EGRESO");
+        Transaccion recibido = new Transaccion();
+        recibido.setId(9L);
+        recibido.setTipo(TipoTransaccion.INGRESO);
+        recibido.setMonto(new BigDecimal("100000"));
+        recibido.setFecha(LocalDate.of(2026, 10, 1));
+        recibido.setPrestamoPersona("Juan");
+        Transaccion pagoAJuan = new Transaccion();
+        pagoAJuan.setId(10L);
+        pagoAJuan.setMonto(new BigDecimal("30000"));
+        pagoAJuan.setPrestamoOrigen(recibido);
+        Transaccion devolucionRecibida = new Transaccion();
+        devolucionRecibida.setId(11L);
+        devolucionRecibida.setMonto(new BigDecimal("5000"));
+        devolucionRecibida.setPrestamoOrigen(new Transaccion());
+
+        when(categorias.findByUserId(1L)).thenReturn(List.of(categoria));
+        when(transacciones.findByUser_IdAndCategoria_CodigoSistemaAndTipo(1L, "PRESTAMO_EGRESO", TipoTransaccion.EGRESO))
+                .thenReturn(List.of(pagoAJuan));
+        when(transacciones.findByUser_IdAndCategoria_CodigoSistemaAndTipo(1L, "PRESTAMO_INGRESO", TipoTransaccion.INGRESO))
+                .thenReturn(List.of(recibido, devolucionRecibida));
+        when(transacciones.findByPrestamoOrigen_Id(9L)).thenReturn(List.of(pagoAJuan));
+
+        var resultado = new PrestamoService(categorias, transacciones).obtenerPrestamos(1L);
+        assertThat(resultado).hasSize(1);
+        assertThat(resultado.get(0).tipo()).isEqualTo(PrestamoService.RECIBIDO);
+        assertThat(resultado.get(0).persona()).isEqualTo("Juan");
+        assertThat(resultado.get(0).pendiente()).isEqualByComparingTo("70000");
+    }
+
+    @Test
     void noMuestraPrestamosSiLaCategoriaEstaOculta() {
         CategoriaRepository categorias = mock(CategoriaRepository.class);
         TransaccionRepository transacciones = mock(TransaccionRepository.class);
