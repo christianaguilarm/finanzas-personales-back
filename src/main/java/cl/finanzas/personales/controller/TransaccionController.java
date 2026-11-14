@@ -14,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -95,6 +96,36 @@ public class TransaccionController {
         return ResponseEntity.ok(
                 transaccionService.obtenerProyeccion(usuarioActualService.idActual(jwt), periodoProyeccion)
         );
+    }
+
+    @PostMapping("/{id}/omisiones")
+    public ResponseEntity<Void> omitirOcurrenciaRecurrente(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable Long id,
+            @RequestParam String periodo
+    ) {
+        transaccionService.omitirOcurrenciaRecurrente(
+                id, usuarioActualService.idActual(jwt), parsearPeriodo(periodo));
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/{id}/omisiones")
+    public ResponseEntity<Void> restaurarOcurrenciaRecurrente(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable Long id,
+            @RequestParam String periodo
+    ) {
+        transaccionService.restaurarOcurrenciaRecurrente(
+                id, usuarioActualService.idActual(jwt), parsearPeriodo(periodo));
+        return ResponseEntity.noContent().build();
+    }
+
+    private YearMonth parsearPeriodo(String periodo) {
+        try {
+            return YearMonth.parse(periodo);
+        } catch (DateTimeParseException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El periodo debe tener el formato yyyy-MM");
+        }
     }
 
     @GetMapping("/cuadre")
