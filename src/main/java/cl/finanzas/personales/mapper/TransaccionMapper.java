@@ -104,7 +104,8 @@ public class TransaccionMapper {
                         : Set.of(),
                 entity.getPrestamoPersona(),
                 entity.getPrestamoFechaDevolucion(),
-                entity.getPrestamoOrigen() != null ? entity.getPrestamoOrigen().getId() : null
+                entity.getPrestamoOrigen() != null ? entity.getPrestamoOrigen().getId() : null,
+                entity.getCategoria() != null ? entity.getCategoria().getCodigoSistema() : null
         );
     }
 
