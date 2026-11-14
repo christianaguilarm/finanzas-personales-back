@@ -22,12 +22,14 @@ import java.util.Map;
 public class CuentaService {
     private final CuentaRepository cuentaRepository;
     private final SaldoService saldoService;
+    private final CategoriaService categoriaService;
     private final Clock clock;
 
     @Transactional
     public CuentaResponse crearCuenta(Long userId, CuentaRequest request) {
         Cuenta cuenta = nuevaCuenta(request, userId);
         Cuenta guardada = cuentaRepository.save(cuenta);
+        categoriaService.asegurarCategoriaPagoTarjeta(userId);
         return toResponse(guardada, saldoService.saldoActual(userId, guardada, LocalDate.now(clock)));
     }
 
@@ -57,6 +59,7 @@ public class CuentaService {
         }
 
         Cuenta guardada = cuentaRepository.save(cuenta);
+        categoriaService.asegurarCategoriaPagoTarjeta(userId);
         return toResponse(guardada, saldoService.saldoActual(userId, guardada, LocalDate.now(clock)));
     }
 

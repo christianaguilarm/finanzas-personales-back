@@ -50,6 +50,9 @@ public interface TransaccionRepository extends JpaRepository<Transaccion, Long>,
      * parámetro (y no escritos en el JPQL) para que la consulta use exactamente la regla de
      * {@link MedioPago#consumeDineroPropio()}.
      *
+     * El pago de una tarjeta (categoría PAGO_TARJETA_CREDITO) sí mueve el saldo de la cuenta con
+     * la que se pagó, salvo que esa cuenta sea a su vez una tarjeta de crédito.
+     *
      * El corte es estricto (menor que la fecha), que es lo que necesita el arrastre entre
      * periodos: los movimientos del propio periodo no van en el saldo con el que abre.
      *
@@ -66,9 +69,11 @@ public interface TransaccionRepository extends JpaRepository<Transaccion, Long>,
                 WHEN t.tipo = cl.finanzas.personales.model.TipoTransaccion.EGRESO THEN -t.monto
                 ELSE 0
             END), 0)
-            FROM Transaccion t
+            FROM Transaccion t LEFT JOIN t.categoria cat
             WHERE t.user.id = :userId AND t.cuenta.id = :cuentaId AND t.fecha < :fechaCorte
               AND t.medio IN :medios
+              AND (cat.codigoSistema IS NULL OR cat.codigoSistema <> 'PAGO_TARJETA_CREDITO'
+                   OR UPPER(t.cuenta.tipo) <> 'CREDITO')
             """)
     BigDecimal saldoAcumuladoHasta(@Param("userId") Long userId,
                                    @Param("cuentaId") Long cuentaId,
@@ -86,9 +91,11 @@ public interface TransaccionRepository extends JpaRepository<Transaccion, Long>,
                        WHEN t.tipo = cl.finanzas.personales.model.TipoTransaccion.EGRESO THEN -t.monto
                        ELSE 0
                    END), 0) AS saldo
-            FROM Transaccion t
+            FROM Transaccion t LEFT JOIN t.categoria cat
             WHERE t.user.id = :userId AND t.fecha < :fechaCorte
               AND t.medio IN :medios
+              AND (cat.codigoSistema IS NULL OR cat.codigoSistema <> 'PAGO_TARJETA_CREDITO'
+                   OR UPPER(t.cuenta.tipo) <> 'CREDITO')
             GROUP BY t.cuenta.id
             """)
     List<SaldoPorCuenta> saldosAcumuladosHasta(@Param("userId") Long userId,
