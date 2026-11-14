@@ -13,11 +13,13 @@ import cl.finanzas.personales.model.Categoria;
 import cl.finanzas.personales.model.FrecuenciaRecurrencia;
 import cl.finanzas.personales.model.Comercio;
 import cl.finanzas.personales.model.Cuenta;
+import cl.finanzas.personales.model.OcurrenciaRecurrenteOmitida;
 import cl.finanzas.personales.model.TipoTransaccion;
 import cl.finanzas.personales.model.Transaccion;
 import cl.finanzas.personales.repository.CategoriaRepository;
 import cl.finanzas.personales.repository.ComercioRepository;
 import cl.finanzas.personales.repository.CuentaRepository;
+import cl.finanzas.personales.repository.OcurrenciaRecurrenteOmitidaRepository;
 import cl.finanzas.personales.repository.TagRepository;
 import cl.finanzas.personales.repository.TransaccionRepository;
 import cl.finanzas.personales.repository.specification.TransaccionSpecifications;
@@ -28,6 +30,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
@@ -57,6 +62,7 @@ public class TransaccionService {
     private final CategoriaRepository categoriaRepository;
     private final ComercioRepository comercioRepository;
     private final CuentaRepository cuentaRepository;
+    private final OcurrenciaRecurrenteOmitidaRepository ocurrenciaRecurrenteOmitidaRepository;
     private final TagRepository tagRepository;
     private final TransaccionMapper mapper;
     private final SaldoService saldoService;
@@ -415,12 +421,23 @@ public class TransaccionService {
 
     @Transactional(readOnly = true)
     public ProyeccionResponse obtenerProyeccion(Long userId, YearMonth periodo) {
-        List<Transaccion> recurrentes = deduplicarRecurrentes(
+        List<Transaccion> recurrentesActivas = deduplicarRecurrentes(
                 transaccionRepository.findAll(TransaccionSpecifications.recurrentesParaProyeccion(userId))
                         .stream()
                         .filter(Transaccion::isEsRecurrente)
                         .toList()
         ).stream().filter(t -> aplicaRecurrenteEnPeriodo(t, periodo)).toList();
+
+        Set<String> clavesOmitidas = ocurrenciaRecurrenteOmitidaRepository
+                .findByUser_IdAndPeriodo(userId, periodo.toString()).stream()
+                .map(OcurrenciaRecurrenteOmitida::getClaveRecurrente)
+                .collect(java.util.stream.Collectors.toSet());
+        List<Transaccion> recurrentesOmitidas = recurrentesActivas.stream()
+                .filter(t -> clavesOmitidas.contains(claveRecurrentePersistida(claveRecurrente(t))))
+                .toList();
+        List<Transaccion> recurrentes = recurrentesActivas.stream()
+                .filter(t -> !clavesOmitidas.contains(claveRecurrentePersistida(claveRecurrente(t))))
+                .toList();
 
         List<Transaccion> cuotasDelMes = deduplicarPlanesEnCuotas(
                 transaccionRepository.findAll(TransaccionSpecifications.comprasEnCuotasParaProyeccion(userId))
@@ -430,7 +447,7 @@ public class TransaccionService {
 
         List<Transaccion> proyectadas = new ArrayList<>(recurrentes);
         proyectadas.addAll(cuotasDelMes);
-        proyectadas.addAll(registradasDelPeriodoEnCurso(userId, periodo, proyectadas));
+        proyectadas.addAll(registradasDelPeriodoEnCurso(userId, periodo, proyectadas, clavesOmitidas));
         // El pago de la tarjeta no es un gasto nuevo: las compras que paga ya se contaron una a una.
         proyectadas.removeIf(TransaccionService::esPagoTarjeta);
 
@@ -456,8 +473,53 @@ public class TransaccionService {
                 saldoInicio.add(ingresoTotal).subtract(egresoTotal),
                 ingresos,
                 egresos,
-                detallarProyeccion(proyectadas, periodo)
+                detallarProyeccion(proyectadas, periodo),
+                detallarProyeccion(recurrentesOmitidas, periodo, false)
         );
+    }
+
+    @Transactional
+    public void omitirOcurrenciaRecurrente(Long transaccionId, Long userId, YearMonth periodo) {
+        validarPeriodoOmitible(periodo);
+        Transaccion recurrente = buscarRecurrente(transaccionId, userId);
+        if (!aplicaRecurrenteEnPeriodo(recurrente, periodo)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "La recurrencia no tiene una ocurrencia en el periodo indicado");
+        }
+
+        String clave = claveRecurrentePersistida(claveRecurrente(recurrente));
+        if (!ocurrenciaRecurrenteOmitidaRepository.existsByUser_IdAndClaveRecurrenteAndPeriodo(
+                userId, clave, periodo.toString())) {
+            ocurrenciaRecurrenteOmitidaRepository.save(
+                    new OcurrenciaRecurrenteOmitida(recurrente.getUser(), clave, periodo));
+        }
+    }
+
+    @Transactional
+    public void restaurarOcurrenciaRecurrente(Long transaccionId, Long userId, YearMonth periodo) {
+        validarPeriodoOmitible(periodo);
+        Transaccion recurrente = buscarRecurrente(transaccionId, userId);
+        String clave = claveRecurrentePersistida(claveRecurrente(recurrente));
+        ocurrenciaRecurrenteOmitidaRepository.deleteByUser_IdAndClaveRecurrenteAndPeriodo(
+                userId, clave, periodo.toString());
+    }
+
+    private Transaccion buscarRecurrente(Long transaccionId, Long userId) {
+        Transaccion recurrente = transaccionRepository.findByIdAndUser_Id(transaccionId, userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "La transacción recurrente no existe para este usuario"));
+        if (!recurrente.isEsRecurrente()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Solo se puede omitir una transacción recurrente");
+        }
+        return recurrente;
+    }
+
+    private void validarPeriodoOmitible(YearMonth periodo) {
+        if (periodo.isBefore(YearMonth.now(clock))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Solo se pueden modificar omisiones del periodo actual o futuro");
+        }
     }
 
     /**
@@ -470,7 +532,8 @@ public class TransaccionService {
      * Para los periodos futuros no se suma nada: todavía no hay transacciones que registradas.
      */
     private List<Transaccion> registradasDelPeriodoEnCurso(Long userId, YearMonth periodo,
-                                                           List<Transaccion> yaProyectadas) {
+                                                           List<Transaccion> yaProyectadas,
+                                                           Set<String> clavesOmitidas) {
         if (!periodo.equals(YearMonth.now(clock))) {
             return List.of();
         }
@@ -489,6 +552,8 @@ public class TransaccionService {
         return transaccionRepository.findAll(TransaccionSpecifications.delPeriodo(userId, periodo))
                 .stream()
                 .filter(transaccion -> !yaContadas.contains(transaccion.getId()))
+                .filter(t -> !t.isEsRecurrente()
+                        || !clavesOmitidas.contains(claveRecurrentePersistida(claveRecurrente(t))))
                 .filter(t -> !t.isEsRecurrente() || t.getNombreRecurrente() == null
                         || !recurrentesNombradas.contains(claveRecurrente(t)))
                 .toList();
@@ -676,6 +741,15 @@ public class TransaccionService {
         return t.getTipo() + "|historico|"
                 + (t.getCuenta() != null ? t.getCuenta().getId() : "null") + "|"
                 + (t.getCategoria() != null ? t.getCategoria().getId() : "null");
+    }
+
+    private String claveRecurrentePersistida(String clave) {
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(clave.getBytes(StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("No se pudo generar la identidad de la recurrencia", e);
+        }
     }
 
     /** Los históricos sin nombre conservan su identidad por cuenta y categoría. */
@@ -866,7 +940,25 @@ public class TransaccionService {
 
     private List<ProyeccionTransaccionResponse> detallarProyeccion(List<Transaccion> proyectadas, YearMonth periodo) {
         return proyectadas.stream()
-                .map(transaccion -> new ProyeccionTransaccionResponse(
+                .map(transaccion -> detallarTransaccion(transaccion, periodo,
+                        periodo.equals(periodoDe(transaccion))))
+                .sorted(Comparator
+                        .comparing((ProyeccionTransaccionResponse t) -> t.esRealizada() ? 1 : 0)
+                        .thenComparing(t -> t.tipo() == TipoTransaccion.INGRESO ? 0 : 1)
+                        .thenComparing(ProyeccionTransaccionResponse::monto, Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+    }
+
+    private List<ProyeccionTransaccionResponse> detallarProyeccion(List<Transaccion> proyectadas, YearMonth periodo,
+                                                                    boolean esRealizada) {
+        return proyectadas.stream()
+                .map(transaccion -> detallarTransaccion(transaccion, periodo, esRealizada))
+                .toList();
+    }
+
+    private ProyeccionTransaccionResponse detallarTransaccion(Transaccion transaccion, YearMonth periodo,
+                                                               boolean esRealizada) {
+        return new ProyeccionTransaccionResponse(
                         transaccion.getDescripcion(),
                         transaccion.getCuenta() != null ? transaccion.getCuenta().getNombre() : null,
                         nombreCategoriaProyeccion(transaccion),
@@ -874,7 +966,7 @@ public class TransaccionService {
                         transaccion.getFecha(),
                         transaccion.getMonto(),
                         transaccion.getTipo(),
-                        periodo.equals(periodoDe(transaccion)),
+                        esRealizada,
                         transaccion.getCuenta() != null ? transaccion.getCuenta().getId() : null,
                         transaccion.getCategoria() != null ? transaccion.getCategoria().getId() : null,
                         transaccion.getSubcategoria() != null ? transaccion.getSubcategoria().getId() : null,
@@ -885,13 +977,9 @@ public class TransaccionService {
                         transaccion.getNombreRecurrente(),
                         transaccion.getFrecuenciaRecurrencia() != null ? transaccion.getFrecuenciaRecurrencia().name() : null,
                         transaccion.getCuotaActual(),
-                        transaccion.getTotalCuotas()
-                ))
-                .sorted(Comparator
-                        .comparing((ProyeccionTransaccionResponse t) -> t.esRealizada() ? 1 : 0)
-                        .thenComparing(t -> t.tipo() == TipoTransaccion.INGRESO ? 0 : 1)
-                        .thenComparing(ProyeccionTransaccionResponse::monto, Comparator.nullsLast(Comparator.reverseOrder())))
-                .toList();
+                        transaccion.getTotalCuotas(),
+                        transaccion.getId()
+                );
     }
 
     /**

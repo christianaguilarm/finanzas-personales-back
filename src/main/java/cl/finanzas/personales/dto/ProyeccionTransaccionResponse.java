@@ -29,6 +29,7 @@ public record ProyeccionTransaccionResponse(
         String nombreRecurrente,
         String frecuenciaRecurrencia,
         Integer cuotaActual,
-        Integer totalCuotas
+        Integer totalCuotas,
+        Long transaccionId
 ) {
 }

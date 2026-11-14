@@ -8,11 +8,13 @@ import cl.finanzas.personales.model.Categoria;
 import cl.finanzas.personales.model.Comercio;
 import cl.finanzas.personales.model.Cuenta;
 import cl.finanzas.personales.model.MedioPago;
+import cl.finanzas.personales.model.OcurrenciaRecurrenteOmitida;
 import cl.finanzas.personales.model.TipoTransaccion;
 import cl.finanzas.personales.model.Transaccion;
 import cl.finanzas.personales.repository.CategoriaRepository;
 import cl.finanzas.personales.repository.ComercioRepository;
 import cl.finanzas.personales.repository.CuentaRepository;
+import cl.finanzas.personales.repository.OcurrenciaRecurrenteOmitidaRepository;
 import cl.finanzas.personales.repository.TagRepository;
 import cl.finanzas.personales.repository.TransaccionRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +22,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentMatchers;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -32,9 +35,11 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -48,6 +53,8 @@ class TransaccionServiceProyeccionTest {
     private ComercioRepository comercioRepository;
     @Mock
     private CuentaRepository cuentaRepository;
+    @Mock
+    private OcurrenciaRecurrenteOmitidaRepository ocurrenciaRecurrenteOmitidaRepository;
     @Mock
     private TagRepository tagRepository;
     @Mock
@@ -86,6 +93,40 @@ class TransaccionServiceProyeccionTest {
         sueldo = categoria(4L, "Sueldo", null);
         salud = categoria(5L, "Salud", null);
         cuentaCorriente = cuenta(10L, "CC Banco Chile");
+    }
+
+    @Test
+    @DisplayName("Omitir una ocurrencia no altera los periodos siguientes ni las cuotas")
+    void omitirOcurrenciaSoloExcluyeLaRecurrenciaDelPeriodoElegido() {
+        Transaccion supermercado = recurrente(41L, TipoTransaccion.EGRESO, cuentaCorriente, mercaderia,
+                new BigDecimal("120590.00"), "Supermercado");
+        supermercado.setNombreRecurrente("Supermercado");
+        supermercado.setPeriodoFacturacion(YearMonth.of(2026, 9));
+        Transaccion cuota = cuota(52L, TipoTransaccion.EGRESO, cuentaCorriente, salud,
+                new BigDecimal("31313.00"), YearMonth.of(2026, 10), 1, 3, "Supermercado en 3 cuotas");
+        when(transaccionRepository.findByIdAndUser_Id(41L, USER_ID)).thenReturn(Optional.of(supermercado));
+
+        transaccionService.omitirOcurrenciaRecurrente(41L, USER_ID, YearMonth.of(2026, 10));
+
+        ArgumentCaptor<OcurrenciaRecurrenteOmitida> omision = ArgumentCaptor.forClass(OcurrenciaRecurrenteOmitida.class);
+        verify(ocurrenciaRecurrenteOmitidaRepository).save(omision.capture());
+        when(ocurrenciaRecurrenteOmitidaRepository.findByUser_IdAndPeriodo(USER_ID, "2026-10"))
+                .thenReturn(List.of(omision.getValue()));
+        when(ocurrenciaRecurrenteOmitidaRepository.findByUser_IdAndPeriodo(USER_ID, "2026-11"))
+                .thenReturn(List.of());
+
+        ProyeccionResponse octubre = proyectar(YearMonth.of(2026, 10), List.of(supermercado), List.of(cuota), List.of(cuota));
+        ProyeccionResponse noviembre = proyectar(YearMonth.of(2026, 11), List.of(supermercado), List.of(cuota));
+
+        assertThat(octubre.egresoTotal()).isEqualByComparingTo("31313.00");
+        assertThat(octubre.transacciones()).hasSize(1);
+        assertThat(octubre.transacciones().get(0).cuota()).isEqualTo("1/3");
+        assertThat(octubre.transaccionesOmitidas()).hasSize(1);
+        assertThat(octubre.transaccionesOmitidas().get(0).transaccionId()).isEqualTo(41L);
+        assertThat(noviembre.egresoTotal()).isEqualByComparingTo("151903.00");
+        assertThat(noviembre.transacciones()).hasSize(2);
+        assertThat(noviembre.transacciones()).extracting(ProyeccionTransaccionResponse::cuota).contains("2/3");
+        assertThat(noviembre.transaccionesOmitidas()).isEmpty();
     }
 
     private ProyeccionResponse proyectar(YearMonth periodo, List<Transaccion> recurrentes, List<Transaccion> cuotas) {
