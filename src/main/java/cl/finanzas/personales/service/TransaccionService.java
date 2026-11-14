@@ -285,41 +285,46 @@ public class TransaccionService {
         if (!codigoEsperado.equals(categoria.getCodigoSistema())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La categoría Préstamo no coincide con el tipo de transacción");
         }
-        if (tipo == TipoTransaccion.EGRESO) {
+        // Sin origen es un préstamo nuevo: egreso = le prestaste a alguien, ingreso = alguien te prestó.
+        // Con origen es una devolución del préstamo de la dirección contraria.
+        List<Transaccion> devoluciones = transaccionId == null ? List.of() : transaccionRepository.findByPrestamoOrigen_Id(transaccionId);
+        if (request.prestamoOrigenId() == null) {
             if (request.prestamoPersona() == null || request.prestamoPersona().isBlank() || request.prestamoFechaDevolucion() == null) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Indica a quién prestaste y la fecha esperada de devolución");
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, tipo == TipoTransaccion.EGRESO
+                        ? "Indica a quién prestaste y la fecha esperada de devolución"
+                        : "Indica quién te prestó y la fecha en que debes devolverlo");
             }
             if (request.prestamoFechaDevolucion().isBefore(request.fecha())) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La fecha de devolución no puede ser anterior al préstamo");
             }
-            if (request.prestamoOrigenId() != null) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Un préstamo nuevo no puede ser su propia devolución");
+            if (devoluciones.stream().anyMatch(d -> d.getTipo() == tipo)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El préstamo tiene devoluciones asociadas");
             }
-            if (transaccionId != null) {
-                BigDecimal devuelto = transaccionRepository.findByPrestamoOrigen_Id(transaccionId).stream()
-                        .map(Transaccion::getMonto).reduce(BigDecimal.ZERO, BigDecimal::add);
-                if (request.monto().compareTo(devuelto) < 0) {
-                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El monto prestado no puede ser menor que lo ya devuelto");
-                }
+            BigDecimal devuelto = devoluciones.stream().map(Transaccion::getMonto).reduce(BigDecimal.ZERO, BigDecimal::add);
+            if (request.monto().compareTo(devuelto) < 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El monto del préstamo no puede ser menor que lo ya devuelto");
             }
-        } else {
-            if (request.prestamoPersona() != null || request.prestamoFechaDevolucion() != null) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La devolución solo requiere seleccionar un préstamo pendiente");
-            }
-            if (request.prestamoOrigenId() != null) {
-                Transaccion origen = transaccionRepository.findById(request.prestamoOrigenId())
-                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "El préstamo no existe"));
-                if (!origen.getUser().getId().equals(userId) || origen.getTipo() != TipoTransaccion.EGRESO ||
-                        origen.getCategoria() == null || !"PRESTAMO_EGRESO".equals(origen.getCategoria().getCodigoSistema())) {
-                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El préstamo no pertenece al usuario");
-                }
-                BigDecimal devuelto = transaccionRepository.findByPrestamoOrigen_Id(origen.getId()).stream()
-                        .filter(t -> !t.getId().equals(transaccionId))
-                        .map(Transaccion::getMonto).reduce(BigDecimal.ZERO, BigDecimal::add);
-                if (devuelto.add(request.monto()).compareTo(origen.getMonto()) > 0) {
-                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La devolución supera el saldo pendiente del préstamo");
-                }
-            }
+            return;
+        }
+        if (request.prestamoPersona() != null || request.prestamoFechaDevolucion() != null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La devolución solo requiere seleccionar un préstamo pendiente");
+        }
+        if (!devoluciones.isEmpty() || request.prestamoOrigenId().equals(transaccionId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Un préstamo no puede ser a la vez una devolución");
+        }
+        TipoTransaccion tipoOrigen = tipo == TipoTransaccion.EGRESO ? TipoTransaccion.INGRESO : TipoTransaccion.EGRESO;
+        String codigoOrigen = tipoOrigen == TipoTransaccion.EGRESO ? "PRESTAMO_EGRESO" : "PRESTAMO_INGRESO";
+        Transaccion origen = transaccionRepository.findById(request.prestamoOrigenId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "El préstamo no existe"));
+        if (!origen.getUser().getId().equals(userId) || origen.getTipo() != tipoOrigen || origen.getPrestamoOrigen() != null ||
+                origen.getCategoria() == null || !codigoOrigen.equals(origen.getCategoria().getCodigoSistema())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El préstamo no pertenece al usuario");
+        }
+        BigDecimal devuelto = transaccionRepository.findByPrestamoOrigen_Id(origen.getId()).stream()
+                .filter(t -> !t.getId().equals(transaccionId))
+                .map(Transaccion::getMonto).reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (devuelto.add(request.monto()).compareTo(origen.getMonto()) > 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La devolución supera el saldo pendiente del préstamo");
         }
     }
 
@@ -426,6 +431,8 @@ public class TransaccionService {
         List<Transaccion> proyectadas = new ArrayList<>(recurrentes);
         proyectadas.addAll(cuotasDelMes);
         proyectadas.addAll(registradasDelPeriodoEnCurso(userId, periodo, proyectadas));
+        // El pago de la tarjeta no es un gasto nuevo: las compras que paga ya se contaron una a una.
+        proyectadas.removeIf(TransaccionService::esPagoTarjeta);
 
         List<ProyeccionCategoriaResponse> ingresos = agruparPorCategoriaRaiz(
                 proyectadas.stream().filter(t -> t.getTipo() == TipoTransaccion.INGRESO).toList()
@@ -545,6 +552,11 @@ public class TransaccionService {
      */
     private static boolean esCuotaCero(Transaccion transaccion) {
         return transaccion.getCuotaActual() != null && transaccion.getCuotaActual() == 0;
+    }
+
+    private static boolean esPagoTarjeta(Transaccion transaccion) {
+        return transaccion.getCategoria() != null
+                && CategoriaService.PAGO_TARJETA_CREDITO.equals(transaccion.getCategoria().getCodigoSistema());
     }
 
     private static boolean esCompraEnCuotas(Transaccion transaccion) {
