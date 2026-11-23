@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -47,11 +48,51 @@ public class PrestamoService {
     }
 
     private PrestamoResponse toResponse(Transaccion origen, String tipo) {
-        BigDecimal devuelto = transaccionRepository.findByPrestamoOrigen_Id(origen.getId()).stream()
-                .map(Transaccion::getMonto).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal devuelto = devueltoAplicado(origen.getMonto(),
+                transaccionRepository.findByPrestamoOrigen_Id(origen.getId()));
         return new PrestamoResponse(origen.getId(), tipo,
                 origen.getPrestamoPersona() == null ? "Sin indicar" : origen.getPrestamoPersona(), origen.getFecha(),
                 origen.getPrestamoFechaDevolucion(), origen.getMonto(), devuelto,
                 origen.getMonto().subtract(devuelto));
+    }
+
+    /**
+     * Cuánto del préstamo quedó devuelto, nunca más que el préstamo.
+     * Una devolución en cuotas (totalCuotas > 1) guarda el valor de cada cuota, pero el préstamo se
+     * saldó al pagarlo con la tarjeta: aporta cuota × totalCuotas. Si eso supera el préstamo, el
+     * exceso son intereses de la tarjeta y no cuenta. Un saldo menor que una unidad por cuota
+     * (166.666 × 3 contra 500.000) es redondeo de la división y se da por pagado.
+     * Las filas del mismo plan (cuota 1/12, 2/12... de montos equivalentes) se cuentan una vez.
+     */
+    public static BigDecimal devueltoAplicado(BigDecimal montoPrestamo, List<Transaccion> devoluciones) {
+        BigDecimal total = BigDecimal.ZERO;
+        BigDecimal toleranciaRedondeo = BigDecimal.ZERO;
+        List<Transaccion> planes = new ArrayList<>();
+        for (Transaccion devolucion : devoluciones) {
+            if (devolucion.getMonto() == null) continue;
+            if (!esEnCuotas(devolucion)) {
+                total = total.add(devolucion.getMonto());
+                continue;
+            }
+            if (planes.stream().anyMatch(plan -> mismoPlan(plan, devolucion))) continue;
+            planes.add(devolucion);
+            total = total.add(devolucion.getMonto().multiply(BigDecimal.valueOf(devolucion.getTotalCuotas())));
+            toleranciaRedondeo = toleranciaRedondeo.add(BigDecimal.valueOf(devolucion.getTotalCuotas()));
+        }
+        if (total.compareTo(montoPrestamo) >= 0 || montoPrestamo.subtract(total).compareTo(toleranciaRedondeo) < 0) {
+            return montoPrestamo;
+        }
+        return total;
+    }
+
+    public static boolean esEnCuotas(Transaccion transaccion) {
+        return transaccion.getTotalCuotas() != null && transaccion.getTotalCuotas() > 1;
+    }
+
+    /** Misma cantidad de cuotas y montos equivalentes (absorbe ajustes de tasa entre cuotas). */
+    public static boolean mismoPlan(Transaccion primera, Transaccion segunda) {
+        return esEnCuotas(primera) && esEnCuotas(segunda)
+                && primera.getTotalCuotas().equals(segunda.getTotalCuotas())
+                && primera.getMonto().subtract(segunda.getMonto()).abs().compareTo(BigDecimal.TEN) <= 0;
     }
 }
