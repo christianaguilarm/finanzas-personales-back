@@ -306,7 +306,9 @@ public class TransaccionService {
             if (devoluciones.stream().anyMatch(d -> d.getTipo() == tipo)) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El préstamo tiene devoluciones asociadas");
             }
-            BigDecimal devuelto = devoluciones.stream().map(Transaccion::getMonto).reduce(BigDecimal.ZERO, BigDecimal::add);
+            // Las devoluciones en cuotas pueden traer intereses de la tarjeta; solo las directas fijan un mínimo.
+            BigDecimal devuelto = devoluciones.stream().filter(d -> !PrestamoService.esEnCuotas(d))
+                    .map(Transaccion::getMonto).reduce(BigDecimal.ZERO, BigDecimal::add);
             if (request.monto().compareTo(devuelto) < 0) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El monto del préstamo no puede ser menor que lo ya devuelto");
             }
@@ -326,9 +328,23 @@ public class TransaccionService {
                 origen.getCategoria() == null || !codigoOrigen.equals(origen.getCategoria().getCodigoSistema())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El préstamo no pertenece al usuario");
         }
-        BigDecimal devuelto = transaccionRepository.findByPrestamoOrigen_Id(origen.getId()).stream()
+        List<Transaccion> otrasDevoluciones = transaccionRepository.findByPrestamoOrigen_Id(origen.getId()).stream()
                 .filter(t -> !t.getId().equals(transaccionId))
-                .map(Transaccion::getMonto).reduce(BigDecimal.ZERO, BigDecimal::add);
+                .toList();
+        BigDecimal devuelto = PrestamoService.devueltoAplicado(origen.getMonto(), otrasDevoluciones);
+        Transaccion nueva = new Transaccion();
+        nueva.setMonto(request.monto());
+        nueva.setTotalCuotas(request.totalCuotas());
+        if (PrestamoService.esEnCuotas(nueva)) {
+            // Pagar el préstamo con la tarjeta en cuotas lo salda aunque el total del plan supere el
+            // saldo por intereses; solo se rechaza si ya estaba devuelto. Otra cuota de un plan ya
+            // registrado no agrega nada.
+            boolean cuotaDePlanExistente = otrasDevoluciones.stream().anyMatch(d -> PrestamoService.mismoPlan(d, nueva));
+            if (!cuotaDePlanExistente && devuelto.compareTo(origen.getMonto()) >= 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El préstamo ya está devuelto");
+            }
+            return;
+        }
         if (devuelto.add(request.monto()).compareTo(origen.getMonto()) > 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La devolución supera el saldo pendiente del préstamo");
         }

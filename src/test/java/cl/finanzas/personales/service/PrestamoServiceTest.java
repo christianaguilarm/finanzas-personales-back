@@ -80,6 +80,41 @@ class PrestamoServiceTest {
         assertThat(resultado.get(0).pendiente()).isEqualByComparingTo("70000");
     }
 
+    private static Transaccion cuota(String monto, int totalCuotas, int cuotaActual) {
+        Transaccion t = new Transaccion();
+        t.setMonto(new BigDecimal(monto));
+        t.setTotalCuotas(totalCuotas);
+        t.setCuotaActual(cuotaActual);
+        return t;
+    }
+
+    @Test
+    void devolucionEnCuotasConInteresesSaldaElPrestamo() {
+        // 48.000 × 12 = 576.000: los 76.000 de más son intereses de la tarjeta.
+        assertThat(PrestamoService.devueltoAplicado(new BigDecimal("500000"), List.of(cuota("48000", 12, 1))))
+                .isEqualByComparingTo("500000");
+    }
+
+    @Test
+    void devolucionEnCuotasSinInteresesAbsorbeElRedondeo() {
+        // 166.666 × 3 = 499.998: los 2 pesos son redondeo de dividir 500.000 en 3.
+        assertThat(PrestamoService.devueltoAplicado(new BigDecimal("500000"), List.of(cuota("166666", 3, 1))))
+                .isEqualByComparingTo("500000");
+    }
+
+    @Test
+    void devolucionParcialEnCuotasCuentaElTotalDelPlan() {
+        assertThat(PrestamoService.devueltoAplicado(new BigDecimal("500000"), List.of(cuota("33333", 3, 1))))
+                .isEqualByComparingTo("99999");
+    }
+
+    @Test
+    void cuotasDelMismoPlanSeCuentanUnaVez() {
+        assertThat(PrestamoService.devueltoAplicado(new BigDecimal("500000"),
+                List.of(cuota("20000", 3, 1), cuota("20002", 3, 2))))
+                .isEqualByComparingTo("60000");
+    }
+
     @Test
     void noMuestraPrestamosSiLaCategoriaEstaOculta() {
         CategoriaRepository categorias = mock(CategoriaRepository.class);
