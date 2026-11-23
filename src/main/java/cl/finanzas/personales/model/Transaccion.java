@@ -70,6 +70,10 @@ public class Transaccion {
     @Column(name = "prestamo_fecha_devolucion")
     private LocalDate prestamoFechaDevolucion;
 
+    /** Parte del préstamo que salda una devolución en cuotas; el resto del plan son intereses. */
+    @Column(name = "prestamo_monto_devuelto", precision = 14, scale = 2)
+    private BigDecimal prestamoMontoDevuelto;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "prestamo_origen_id")
     private Transaccion prestamoOrigen;
