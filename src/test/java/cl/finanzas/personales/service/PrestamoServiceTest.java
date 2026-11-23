@@ -109,6 +109,24 @@ class PrestamoServiceTest {
     }
 
     @Test
+    void devolucionEnCuotasConMontoDevueltoCuentaSoloEseMonto() {
+        // Debía 500.000, pagó 45.000 × 12 = 540.000 pero solo 460.000 saldan el préstamo.
+        Transaccion plan = cuota("45000", 12, 1);
+        plan.setPrestamoMontoDevuelto(new BigDecimal("460000"));
+        assertThat(PrestamoService.devueltoAplicado(new BigDecimal("500000"), List.of(plan)))
+                .isEqualByComparingTo("460000");
+    }
+
+    @Test
+    void montoDevueltoDeOtraCuotaDelPlanSeCuentaUnaVez() {
+        Transaccion primera = cuota("45000", 12, 1);
+        Transaccion segunda = cuota("45003", 12, 2);
+        segunda.setPrestamoMontoDevuelto(new BigDecimal("460000"));
+        assertThat(PrestamoService.devueltoAplicado(new BigDecimal("500000"), List.of(primera, segunda)))
+                .isEqualByComparingTo("460000");
+    }
+
+    @Test
     void cuotasDelMismoPlanSeCuentanUnaVez() {
         assertThat(PrestamoService.devueltoAplicado(new BigDecimal("500000"),
                 List.of(cuota("20000", 3, 1), cuota("20002", 3, 2))))

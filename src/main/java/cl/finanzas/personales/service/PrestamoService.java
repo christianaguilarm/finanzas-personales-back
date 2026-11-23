@@ -58,8 +58,9 @@ public class PrestamoService {
 
     /**
      * Cuánto del préstamo quedó devuelto, nunca más que el préstamo.
-     * Una devolución en cuotas (totalCuotas > 1) guarda el valor de cada cuota, pero el préstamo se
-     * saldó al pagarlo con la tarjeta: aporta cuota × totalCuotas. Si eso supera el préstamo, el
+     * Una devolución en cuotas (totalCuotas > 1) guarda el valor de cada cuota. Si indica
+     * prestamoMontoDevuelto, aporta exactamente eso (el resto del plan son intereses). Si no,
+     * el préstamo se saldó al pagarlo con la tarjeta: aporta cuota × totalCuotas. Si eso supera el préstamo, el
      * exceso son intereses de la tarjeta y no cuenta. Un saldo menor que una unidad por cuota
      * (166.666 × 3 contra 500.000) es redondeo de la división y se da por pagado.
      * Las filas del mismo plan (cuota 1/12, 2/12... de montos equivalentes) se cuentan una vez.
@@ -76,6 +77,12 @@ public class PrestamoService {
             }
             if (planes.stream().anyMatch(plan -> mismoPlan(plan, devolucion))) continue;
             planes.add(devolucion);
+            BigDecimal montoDeclarado = montoDevueltoDelPlan(devolucion, devoluciones);
+            if (montoDeclarado != null) {
+                // El usuario indicó cuánto del préstamo salda el plan; el resto son intereses.
+                total = total.add(montoDeclarado);
+                continue;
+            }
             total = total.add(devolucion.getMonto().multiply(BigDecimal.valueOf(devolucion.getTotalCuotas())));
             toleranciaRedondeo = toleranciaRedondeo.add(BigDecimal.valueOf(devolucion.getTotalCuotas()));
         }
@@ -83,6 +90,14 @@ public class PrestamoService {
             return montoPrestamo;
         }
         return total;
+    }
+
+    /** El monto devuelto declarado en cualquier fila del plan, o null si ninguna lo indica. */
+    private static BigDecimal montoDevueltoDelPlan(Transaccion ancla, List<Transaccion> devoluciones) {
+        return devoluciones.stream()
+                .filter(d -> d.getPrestamoMontoDevuelto() != null && d.getMonto() != null && mismoPlan(ancla, d))
+                .map(Transaccion::getPrestamoMontoDevuelto)
+                .findFirst().orElse(null);
     }
 
     public static boolean esEnCuotas(Transaccion transaccion) {

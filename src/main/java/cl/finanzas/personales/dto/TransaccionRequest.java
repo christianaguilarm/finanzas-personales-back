@@ -34,6 +34,8 @@ public record TransaccionRequest(
         Set<Long> tagIds,
         @Size(max = 120) String prestamoPersona,
         LocalDate prestamoFechaDevolucion,
-        Long prestamoOrigenId
+        Long prestamoOrigenId,
+        @DecimalMin(value = "0.01", message = "El monto devuelto debe ser mayor que cero")
+        BigDecimal prestamoMontoDevuelto
 ) {
 }
