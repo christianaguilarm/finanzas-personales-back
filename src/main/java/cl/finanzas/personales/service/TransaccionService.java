@@ -279,7 +279,8 @@ public class TransaccionService {
         boolean esPrestamo = categoria != null && categoria.isActivo() &&
                 ("PRESTAMO_EGRESO".equals(categoria.getCodigoSistema()) || "PRESTAMO_INGRESO".equals(categoria.getCodigoSistema()));
         if (!esPrestamo) {
-            if (request.prestamoPersona() != null || request.prestamoFechaDevolucion() != null || request.prestamoOrigenId() != null) {
+            if (request.prestamoPersona() != null || request.prestamoFechaDevolucion() != null || request.prestamoOrigenId() != null
+                    || request.prestamoMontoDevuelto() != null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Los datos de préstamo requieren la categoría Préstamo");
             }
             if (transaccionId != null && !transaccionRepository.findByPrestamoOrigen_Id(transaccionId).isEmpty()) {
@@ -295,6 +296,9 @@ public class TransaccionService {
         // Con origen es una devolución del préstamo de la dirección contraria.
         List<Transaccion> devoluciones = transaccionId == null ? List.of() : transaccionRepository.findByPrestamoOrigen_Id(transaccionId);
         if (request.prestamoOrigenId() == null) {
+            if (request.prestamoMontoDevuelto() != null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El monto devuelto solo aplica a devoluciones en cuotas");
+            }
             if (request.prestamoPersona() == null || request.prestamoPersona().isBlank() || request.prestamoFechaDevolucion() == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, tipo == TipoTransaccion.EGRESO
                         ? "Indica a quién prestaste y la fecha esperada de devolución"
@@ -335,13 +339,30 @@ public class TransaccionService {
         Transaccion nueva = new Transaccion();
         nueva.setMonto(request.monto());
         nueva.setTotalCuotas(request.totalCuotas());
-        if (PrestamoService.esEnCuotas(nueva)) {
-            // Pagar el préstamo con la tarjeta en cuotas lo salda aunque el total del plan supere el
-            // saldo por intereses; solo se rechaza si ya estaba devuelto. Otra cuota de un plan ya
-            // registrado no agrega nada.
-            boolean cuotaDePlanExistente = otrasDevoluciones.stream().anyMatch(d -> PrestamoService.mismoPlan(d, nueva));
-            if (!cuotaDePlanExistente && devuelto.compareTo(origen.getMonto()) >= 0) {
+        nueva.setPrestamoMontoDevuelto(request.prestamoMontoDevuelto());
+        if (!PrestamoService.esEnCuotas(nueva)) {
+            if (request.prestamoMontoDevuelto() != null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El monto devuelto solo aplica a devoluciones en cuotas");
+            }
+        } else {
+            // Pagar con la tarjeta en cuotas: el total del plan puede incluir intereses. Si se indica
+            // cuánto del préstamo salda, eso es lo que cuenta; si no, el plan salda el préstamo.
+            // Otra cuota de un plan ya registrado no agrega nada.
+            BigDecimal totalPlan = request.monto().multiply(BigDecimal.valueOf(request.totalCuotas()));
+            if (request.prestamoMontoDevuelto() != null && request.prestamoMontoDevuelto().compareTo(totalPlan) > 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El monto devuelto no puede superar el total pagado en cuotas");
+            }
+            if (otrasDevoluciones.stream().anyMatch(d -> PrestamoService.mismoPlan(d, nueva))) {
+                return;
+            }
+            if (devuelto.compareTo(origen.getMonto()) >= 0) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El préstamo ya está devuelto");
+            }
+            if (request.prestamoMontoDevuelto() == null) {
+                return;
+            }
+            if (devuelto.add(request.prestamoMontoDevuelto()).compareTo(origen.getMonto()) > 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El monto devuelto supera el saldo pendiente del préstamo");
             }
             return;
         }
@@ -353,6 +374,7 @@ public class TransaccionService {
     private void asignarPrestamo(Transaccion transaccion, TransaccionRequest request) {
         transaccion.setPrestamoPersona(request.prestamoPersona() == null ? null : request.prestamoPersona().trim());
         transaccion.setPrestamoFechaDevolucion(request.prestamoFechaDevolucion());
+        transaccion.setPrestamoMontoDevuelto(request.prestamoMontoDevuelto());
         transaccion.setPrestamoOrigen(request.prestamoOrigenId() == null ? null : transaccionRepository.findById(request.prestamoOrigenId()).orElseThrow());
     }
 

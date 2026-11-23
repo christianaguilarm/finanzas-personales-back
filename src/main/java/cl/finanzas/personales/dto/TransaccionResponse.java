@@ -39,6 +39,7 @@ public record TransaccionResponse(
         String prestamoPersona,
         LocalDate prestamoFechaDevolucion,
         Long prestamoOrigenId,
-        String categoriaCodigoSistema
+        String categoriaCodigoSistema,
+        BigDecimal prestamoMontoDevuelto
 ) {
 }
