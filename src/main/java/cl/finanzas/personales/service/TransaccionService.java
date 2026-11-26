@@ -590,6 +590,8 @@ public class TransaccionService {
         return transaccionRepository.findAll(TransaccionSpecifications.delPeriodo(userId, periodo))
                 .stream()
                 .filter(transaccion -> !yaContadas.contains(transaccion.getId()))
+                // La cuota cero todavía no se cobra: su primera cuota ya se proyecta el mes siguiente.
+                .filter(transaccion -> !esCuotaCero(transaccion))
                 .filter(t -> !t.isEsRecurrente()
                         || !clavesOmitidas.contains(claveRecurrentePersistida(claveRecurrente(t))))
                 .filter(t -> !t.isEsRecurrente() || t.getNombreRecurrente() == null
