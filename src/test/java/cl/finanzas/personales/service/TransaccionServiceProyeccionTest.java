@@ -504,6 +504,26 @@ class TransaccionServiceProyeccionTest {
     }
 
     @Test
+    @DisplayName("La proyección del mes en curso no suma una compra en cuota 0, que todavía no se cobra")
+    void mesEnCursoNoSumaCuotaCero() {
+        Transaccion cuotaCero = cuota(1L, TipoTransaccion.EGRESO, cuentaCorriente, salud,
+                new BigDecimal("9587.00"), PERIODO_EN_CURSO, 0, 3);
+        Transaccion cena = base(2L, TipoTransaccion.EGRESO, cuentaCorriente, salud,
+                new BigDecimal("12000.00"), "Cena");
+        cena.setPeriodoFacturacion(PERIODO_EN_CURSO);
+
+        ProyeccionResponse enCurso = proyectar(PERIODO_EN_CURSO, List.of(), List.of(cuotaCero),
+                List.of(cuotaCero, cena));
+        assertThat(enCurso.egresoTotal()).isEqualByComparingTo("12000.00");
+        assertThat(enCurso.transacciones()).hasSize(1);
+
+        // La primera cuota se cobra el mes siguiente.
+        ProyeccionResponse siguiente = proyectar(PERIODO_EN_CURSO.plusMonths(1), List.of(), List.of(cuotaCero));
+        assertThat(siguiente.egresoTotal()).isEqualByComparingTo("9587.00");
+        assertThat(siguiente.transacciones().get(0).cuota()).isEqualTo("1/3");
+    }
+
+    @Test
     @DisplayName("La proyección de un mes futuro no suma transacciones ya registradas")
     void noSumaLoRegistradoEnUnPeriodoQueNoEsElEnCurso() {
         Transaccion cuota1 = cuota(1L, TipoTransaccion.EGRESO, cuentaCorriente, salud,
